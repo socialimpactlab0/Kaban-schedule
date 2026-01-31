@@ -221,16 +221,10 @@
             
             <!-- 欄位 -->
             <div 
-              v-for="column in sortedColumns" 
-              :key="column.id"
-              :draggable="role === 'admin'"
-              @dragstart="onColumnDragStart($event, column)"
-              @dragend="onColumnDragEnd"
-              @dragover.prevent="onColumnDragOver($event, column)"
-              @drop="onColumnDrop($event, column)"
-              class="flex-shrink-0 w-80 bg-gray-100 rounded-xl flex flex-col max-h-full"
-              :class="{ 'drag-over': dragOverColumn === column.id && draggingColumn }"
-            >
+               v-for="column in sortedColumns" 
+               :key="column.id"
+               class="flex-shrink-0 w-80 bg-gray-100 rounded-xl flex flex-col max-h-full"
+              >
               <!-- 欄位標題 -->
               <div class="column-color-bar" :style="{ background: column.color || '#94a3b8' }"></div>
               <div class="p-3 flex items-center justify-between">
