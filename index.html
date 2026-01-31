@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>團隊看板</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  
+  <style>
+    * { font-family: 'Noto Sans TC', sans-serif; }
+    
+    /* 自訂滾動條 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* 拖拉樣式 */
+    .dragging { opacity: 0.5; transform: rotate(2deg); }
+    .drag-over { border: 2px dashed #3b82f6 !important; background: #eff6ff !important; }
+    .card-ghost { opacity: 0.4; }
+    
+    /* 動畫 */
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
+    
+    .slide-enter-active, .slide-leave-active { transition: all 0.3s ease; }
+    .slide-enter-from { transform: translateX(100%); opacity: 0; }
+    .slide-leave-to { transform: translateX(100%); opacity: 0; }
+    
+    /* 卡片樣式 */
+    .card-item { transition: all 0.2s ease; }
+    .card-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    
+    /* 標籤顏色 */
+    .label-red { background: #fee2e2; color: #dc2626; }
+    .label-orange { background: #ffedd5; color: #ea580c; }
+    .label-yellow { background: #fef9c3; color: #ca8a04; }
+    .label-green { background: #dcfce7; color: #16a34a; }
+    .label-blue { background: #dbeafe; color: #2563eb; }
+    .label-purple { background: #f3e8ff; color: #9333ea; }
+    
+    /* Modal 背景 */
+    .modal-backdrop {
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+    
+    /* 欄位顏色條 */
+    .column-color-bar {
+      height: 4px;
+      border-radius: 4px 4px 0 0;
+    }
+    
+    /* 日曆格子 */
+    .calendar-day {
+      min-height: 100px;
+      transition: background 0.2s;
+    }
+    .calendar-day:hover {
+      background: #f8fafc;
+    }
+    .calendar-today {
+      background: #eff6ff;
+      border: 2px solid #3b82f6;
+    }
+    
+    /* 甘特圖 */
+    .gantt-bar {
+      height: 28px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+    .gantt-bar:hover {
+      filter: brightness(1.1);
+      transform: scaleY(1.1);
+    }
+    
+    /* 即時同步指示器 */
+    .sync-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="app">
+    <!-- 載入中 -->
+    <div v-if="loading" class="fixed inset-0 bg-white flex items-center justify-center z-50">
+      <div class="text-center">
+        <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <p class="text-gray-600 text-lg">載入中...</p>
+      </div>
+    </div>
+
+    <!-- 錯誤訊息 -->
+    <div v-if="error" class="fixed inset-0 bg-white flex items-center justify-center z-50">
+      <div class="text-center p-8">
+        <div class="text-6xl mb-4">🔒</div>
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">無法進入</h1>
+        <p class="text-gray-600">{{ error }}</p>
+      </div>
+    </div>
+
+    <!-- 暱稱輸入 -->
+    <div v-if="!loading && !error && !nickname" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">歡迎使用團隊看板</h2>
+        <p class="text-gray-600 mb-6">請輸入你的暱稱，讓團隊成員認識你</p>
+        <input 
+          v-model="nicknameInput" 
+          @keyup.enter="setNickname"
+          type="text" 
+          placeholder="輸入暱稱（例如：小明）" 
+          class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none text-lg mb-4"
+          maxlength="20"
+        >
+        <button 
+          @click="setNickname" 
+          :disabled="!nicknameInput.trim()"
+          class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+        >
+          開始使用
+        </button>
+      </div>
+    </div>
+
+    <!-- 主介面 -->
+    <div v-if="!loading && !error && nickname" class="min-h-screen flex flex-col">
+      
+      <!-- 頂部導覽 -->
+      <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+        <div class="flex items-center gap-4">
+          <h1 class="text-xl font-bold text-gray-800">📋 團隊看板</h1>
+          
+          <!-- 看板選擇 -->
+          <select 
+            v-model="currentBoardId" 
+            @change="onBoardChange"
+            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+          >
+            <option value="">選擇看板</option>
+            <option v-for="board in boards" :key="board.id" :value="board.id">
+              {{ board.name }}
+            </option>
+          </select>
+          
+          <!-- 新增看板按鈕 -->
+          <button 
+            v-if="role === 'admin'"
+            @click="showNewBoardModal = true"
+            class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-1"
+          >
+            <span>+</span> 新增看板
+          </button>
+        </div>
+        
+        <div class="flex items-center gap-4">
+          <!-- 即時同步指示器 -->
+          <div class="flex items-center gap-2 text-sm text-gray-500">
+            <div class="sync-indicator bg-green-500"></div>
+            <span>即時同步</span>
+          </div>
+          
+          <!-- 視圖切換 -->
+          <div class="flex bg-gray-100 rounded-lg p-1">
+            <button 
+              @click="currentView = 'board'"
+              :class="currentView === 'board' ? 'bg-white shadow' : ''"
+              class="px-4 py-2 rounded-md text-sm font-medium transition"
+            >
+              看板
+            </button>
+            <button 
+              @click="currentView = 'calendar'"
+              :class="currentView === 'calendar' ? 'bg-white shadow' : ''"
+              class="px-4 py-2 rounded-md text-sm font-medium transition"
+            >
+              日曆
+            </button>
+            <button 
+              @click="currentView = 'gantt'"
+              :class="currentView === 'gantt' ? 'bg-white shadow' : ''"
+              class="px-4 py-2 rounded-md text-sm font-medium transition"
+            >
+              甘特圖
+            </button>
+          </div>
+          
+          <!-- 使用者資訊 -->
+          <div class="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg">
+            <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-medium">
+              {{ nickname.charAt(0) }}
+            </div>
+            <span class="text-sm font-medium">{{ nickname }}</span>
+            <span class="text-xs px-2 py-1 rounded-full" :class="role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'">
+              {{ role === 'admin' ? '管理員' : '成員' }}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <!-- 主要內容區 -->
+      <main class="flex-1 overflow-hidden">
+        
+        <!-- 看板視圖 -->
+        <div v-if="currentView === 'board' && currentBoardId" class="h-full p-6 overflow-x-auto">
+          <div class="flex gap-4 h-full">
+            
+            <!-- 欄位 -->
+            <div 
+              v-for="column in sortedColumns" 
+              :key="column.id"
+              :draggable="role === 'admin'"
+              @dragstart="onColumnDragStart($event, column)"
+              @dragend="onColumnDragEnd"
+              @dragover.prevent="onColumnDragOver($event, column)"
+              @drop="onColumnDrop($event, column)"
+              class="flex-shrink-0 w-80 bg-gray-100 rounded-xl flex flex-col max-h-full"
+              :class="{ 'drag-over': dragOverColumn === column.id && draggingColumn }"
+            >
+              <!-- 欄位標題 -->
+              <div class="column-color-bar" :style="{ background: column.color || '#94a3b8' }"></div>
+              <div class="p-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <h3 class="font-bold text-gray-800">{{ column.name }}</h3>
+                  <span class="text-sm text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
+                    {{ getCardsInColumn(column.id).length }}
+                  </span>
+                </div>
+                <button 
+                  v-if="role === 'admin'"
+                  @click="openColumnMenu(column, $event)"
+                  class="p-1 hover:bg-gray-200 rounded transition"
+                >
+                  ⋮
+                </button>
+              </div>
+              
+              <!-- 卡片列表 -->
+              <div 
+                class="flex-1 overflow-y-auto p-2 space-y-2"
+                @dragover.prevent="onCardDragOver($event, column)"
+                @drop="onCardDrop($event, column)"
+              >
+                <div
+                  v-for="card in getCardsInColumn(column.id)"
+                  :key="card.id"
+                  draggable="true"
+                  @dragstart="onCardDragStart($event, card)"
+                  @dragend="onCardDragEnd"
+                  @click="openCardDetail(card)"
+                  class="card-item bg-white p-3 rounded-lg shadow-sm cursor-pointer border border-gray-200"
+                  :class="{ 'dragging': draggingCard?.id === card.id }"
+                >
+                  <!-- 標籤 -->
+                  <div v-if="card.labels && card.labels.length" class="flex flex-wrap gap-1 mb-2">
+                    <span 
+                      v-for="label in card.labels" 
+                      :key="label"
+                      class="text-xs px-2 py-0.5 rounded-full"
+                      :class="'label-' + label"
+                    >
+                      {{ getLabelName(label) }}
+                    </span>
+                  </div>
+                  
+                  <!-- 標題 -->
+                  <h4 class="font-medium text-gray-800 mb-2">{{ card.title }}</h4>
+                  
+                  <!-- 底部資訊 -->
+                  <div class="flex items-center justify-between text-sm text-gray-500">
+                    <div class="flex items-center gap-2">
+                      <span v-if="card.dueDate" :class="getDueDateClass(card.dueDate)">
+                        📅 {{ formatDate(card.dueDate) }}
+                      </span>
+                    </div>
+                    <div v-if="card.assignee" class="flex items-center gap-1">
+                      <div class="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-xs">
+                        {{ card.assignee.charAt(0) }}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- 檢查清單進度 -->
+                  <div v-if="card.checklist && card.checklist.length" class="mt-2">
+                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                      <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+                        <div 
+                          class="bg-green-500 h-1.5 rounded-full transition-all"
+                          :style="{ width: getChecklistProgress(card.checklist) + '%' }"
+                        ></div>
+                      </div>
+                      <span>{{ getChecklistCompleted(card.checklist) }}/{{ card.checklist.length }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 新增卡片按鈕 -->
+              <div class="p-2">
+                <button 
+                  @click="openNewCardModal(column)"
+                  class="w-full py-2 text-gray-500 hover:bg-gray-200 rounded-lg transition flex items-center justify-center gap-1"
+                >
+                  <span>+</span> 新增卡片
+                </button>
+              </div>
+            </div>
+            
+            <!-- 新增欄位按鈕 -->
+            <div v-if="role === 'admin'" class="flex-shrink-0 w-80">
+              <button 
+                @click="showNewColumnModal = true"
+                class="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-blue-400 hover:text-blue-500 transition"
+              >
+                + 新增欄位
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 無看板提示 -->
+        <div v-if="currentView === 'board' && !currentBoardId" class="h-full flex items-center justify-center">
+          <div class="text-center">
+            <div class="text-6xl mb-4">📋</div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">開始使用看板</h2>
+            <p class="text-gray-600 mb-4">選擇現有看板或建立新的看板</p>
+            <button 
+              v-if="role === 'admin'"
+              @click="showNewBoardModal = true"
+              class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+            >
+              建立第一個看板
+            </button>
+          </div>
+        </div>
+
+        <!-- 日曆視圖 -->
+        <div v-if="currentView === 'calendar'" class="h-full p-6 overflow-auto">
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <!-- 日曆標題 -->
+            <div class="flex items-center justify-between mb-4">
+              <button @click="prevMonth" class="p-2 hover:bg-gray-100 rounded-lg">←</button>
+              <h2 class="text-xl font-bold">{{ calendarTitle }}</h2>
+              <button @click="nextMonth" class="p-2 hover:bg-gray-100 rounded-lg">→</button>
+            </div>
+            
+            <!-- 星期標題 -->
+            <div class="grid grid-cols-7 gap-1 mb-2">
+              <div v-for="day in ['日', '一', '二', '三', '四', '五', '六']" :key="day" class="text-center text-sm font-medium text-gray-500 py-2">
+                {{ day }}
+              </div>
+            </div>
+            
+            <!-- 日曆格子 -->
+            <div class="grid grid-cols-7 gap-1">
+              <div 
+                v-for="day in calendarDays" 
+                :key="day.date"
+                class="calendar-day border border-gray-100 rounded-lg p-2"
+                :class="{ 
+                  'bg-gray-50': !day.isCurrentMonth,
+                  'calendar-today': day.isToday
+                }"
+                @dragover.prevent
+                @drop="onCalendarDrop($event, day.date)"
+              >
+                <div class="text-sm font-medium" :class="day.isCurrentMonth ? 'text-gray-800' : 'text-gray-400'">
+                  {{ day.dayNum }}
+                </div>
+                <div class="mt-1 space-y-1">
+                  <div 
+                    v-for="card in getCardsOnDate(day.date)" 
+                    :key="card.id"
+                    @click="openCardDetail(card)"
+                    class="text-xs p-1 rounded truncate cursor-pointer hover:opacity-80"
+                    :style="{ background: getColumnColor(card.columnId) + '40', color: getColumnColor(card.columnId) }"
+                    draggable="true"
+                    @dragstart="onCardDragStart($event, card)"
+                  >
+                    {{ card.title }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 甘特圖視圖 -->
+        <div v-if="currentView === 'gantt'" class="h-full p-6 overflow-auto">
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <h2 class="text-xl font-bold mb-4">甘特圖</h2>
+            
+            <!-- 篩選 -->
+            <div class="flex gap-4 mb-4">
+              <select v-model="ganttFilter.assignee" class="px-3 py-2 border rounded-lg">
+                <option value="">所有負責人</option>
+                <option v-for="name in allAssignees" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            
+            <div class="overflow-x-auto">
+              <div class="min-w-max">
+                <!-- 日期標題 -->
+                <div class="flex border-b">
+                  <div class="w-48 flex-shrink-0 p-2 font-medium">任務</div>
+                  <div class="flex">
+                    <div 
+                      v-for="date in ganttDates" 
+                      :key="date"
+                      class="w-10 p-1 text-xs text-center border-l"
+                      :class="{ 'bg-blue-50': isToday(date) }"
+                    >
+                      {{ formatGanttDate(date) }}
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 任務列 -->
+                <div 
+                  v-for="card in filteredGanttCards" 
+                  :key="card.id"
+                  class="flex border-b hover:bg-gray-50"
+                >
+                  <div class="w-48 flex-shrink-0 p-2 truncate">
+                    <span class="cursor-pointer hover:text-blue-500" @click="openCardDetail(card)">
+                      {{ card.title }}
+                    </span>
+                  </div>
+                  <div class="flex relative flex-1">
+                    <div 
+                      v-for="date in ganttDates" 
+                      :key="date"
+                      class="w-10 border-l h-10"
+                    ></div>
+                    <!-- 甘特條 -->
+                    <div 
+                      v-if="card.startDate && card.dueDate"
+                      class="gantt-bar absolute top-1 flex items-center justify-center text-xs text-white font-medium"
+                      :style="getGanttBarStyle(card)"
+                    >
+                      {{ card.assignee || '' }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- ========== 彈窗 Modals ========== -->
+    
+    <!-- 新增看板彈窗 -->
+    <div v-if="showNewBoardModal" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50" @click.self="showNewBoardModal = false">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">新增看板</h2>
+        <input 
+          v-model="newBoardName" 
+          type="text" 
+          placeholder="看板名稱" 
+          class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none mb-4"
+          @keyup.enter="createBoard"
+        >
+        <div class="flex gap-2">
+          <button @click="showNewBoardModal = false" class="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition">取消</button>
+          <button @click="createBoard" :disabled="!newBoardName.trim()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:bg-gray-300 transition">建立</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增欄位彈窗 -->
+    <div v-if="showNewColumnModal" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50" @click.self="showNewColumnModal = false">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">新增欄位</h2>
+        <input 
+          v-model="newColumnName" 
+          type="text" 
+          placeholder="欄位名稱（例如：待辦事項）" 
+          class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none mb-4"
+        >
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">欄位顏色</label>
+          <div class="flex gap-2">
+            <button 
+              v-for="color in columnColors" 
+              :key="color"
+              @click="newColumnColor = color"
+              class="w-8 h-8 rounded-full transition ring-offset-2"
+              :class="{ 'ring-2 ring-gray-400': newColumnColor === color }"
+              :style="{ background: color }"
+            ></button>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button @click="showNewColumnModal = false" class="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition">取消</button>
+          <button @click="createColumn" :disabled="!newColumnName.trim()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:bg-gray-300 transition">建立</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增卡片彈窗 -->
+    <div v-if="showNewCardModal" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50" @click.self="showNewCardModal = false">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">新增卡片</h2>
+        <input 
+          v-model="newCardTitle" 
+          type="text" 
+          placeholder="卡片標題" 
+          class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none mb-4"
+          @keyup.enter="createCard"
+        >
+        <div class="flex gap-2">
+          <button @click="showNewCardModal = false" class="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition">取消</button>
+          <button @click="createCard" :disabled="!newCardTitle.trim()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:bg-gray-300 transition">建立</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片詳情彈窗 -->
+    <div v-if="showCardDetail && editingCard" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" @click.self="closeCardDetail">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+          <!-- 標題 -->
+          <div class="flex items-start justify-between mb-4">
+            <input 
+              v-model="editingCard.title" 
+              class="text-2xl font-bold text-gray-800 w-full border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 -ml-2"
+              placeholder="卡片標題"
+            >
+            <button @click="closeCardDetail" class="p-2 hover:bg-gray-100 rounded-lg ml-2">✕</button>
+          </div>
+          
+          <div class="grid grid-cols-3 gap-6">
+            <!-- 左側主要內容 -->
+            <div class="col-span-2 space-y-6">
+              <!-- 描述 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">描述</h3>
+                <textarea 
+                  v-model="editingCard.description" 
+                  class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                  rows="4"
+                  placeholder="新增描述..."
+                ></textarea>
+              </div>
+              
+              <!-- 檢查清單 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">檢查清單</h3>
+                <div class="space-y-2">
+                  <div 
+                    v-for="(item, index) in editingCard.checklist" 
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input 
+                      type="checkbox" 
+                      v-model="item.done"
+                      class="w-5 h-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                    >
+                    <input 
+                      v-model="item.text" 
+                      class="flex-1 px-2 py-1 border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                      :class="{ 'line-through text-gray-400': item.done }"
+                    >
+                    <button @click="removeChecklistItem(index)" class="p-1 hover:bg-red-100 text-red-500 rounded">✕</button>
+                  </div>
+                </div>
+                <button 
+                  @click="addChecklistItem" 
+                  class="mt-2 text-sm text-blue-500 hover:text-blue-600"
+                >
+                  + 新增項目
+                </button>
+              </div>
+              
+              <!-- 留言 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">留言</h3>
+                <div class="flex gap-2 mb-4">
+                  <input 
+                    v-model="newComment" 
+                    type="text" 
+                    placeholder="寫個留言..." 
+                    class="flex-1 px-4 py-2 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    @keyup.enter="addComment"
+                  >
+                  <button 
+                    @click="addComment" 
+                    :disabled="!newComment.trim()"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:bg-gray-300 transition"
+                  >
+                    送出
+                  </button>
+                </div>
+                <div class="space-y-3">
+                  <div v-for="comment in cardComments" :key="comment.id" class="flex gap-3">
+                    <div class="w-8 h-8 bg-gray-300 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-medium">
+                      {{ comment.author?.charAt(0) || '?' }}
+                    </div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-gray-800">{{ comment.author }}</span>
+                        <span class="text-xs text-gray-400">{{ formatDateTime(comment.createdAt) }}</span>
+                      </div>
+                      <p class="text-gray-600">{{ comment.content }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 右側屬性 -->
+            <div class="space-y-4">
+              <!-- 負責人 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">負責人</label>
+                <input 
+                  v-model="editingCard.assignee" 
+                  type="text" 
+                  placeholder="輸入名字"
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                >
+              </div>
+              
+              <!-- 開始日期 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">開始日期</label>
+                <input 
+                  v-model="editingCard.startDate" 
+                  type="date" 
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                >
+              </div>
+              
+              <!-- 截止日期 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
+                <input 
+                  v-model="editingCard.dueDate" 
+                  type="date" 
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                >
+              </div>
+              
+              <!-- 標籤 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">標籤</label>
+                <div class="flex flex-wrap gap-2">
+                  <button 
+                    v-for="(name, key) in labelNames" 
+                    :key="key"
+                    @click="toggleLabel(key)"
+                    class="px-3 py-1 rounded-full text-sm transition"
+                    :class="[
+                      'label-' + key,
+                      editingCard.labels?.includes(key) ? 'ring-2 ring-offset-1 ring-gray-400' : 'opacity-60 hover:opacity-100'
+                    ]"
+                  >
+                    {{ name }}
+                  </button>
+                </div>
+              </div>
+              
+              <!-- 移動到其他欄位 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">移動到</label>
+                <select 
+                  v-model="editingCard.columnId"
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                >
+                  <option v-for="col in columns" :key="col.id" :value="col.id">{{ col.name }}</option>
+                </select>
+              </div>
+              
+              <!-- 刪除按鈕 -->
+              <button 
+                @click="deleteCard"
+                class="w-full py-2 border border-red-300 text-red-500 rounded-lg hover:bg-red-50 transition mt-4"
+              >
+                刪除卡片
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 底部儲存 -->
+        <div class="border-t p-4 flex justify-end gap-2 bg-gray-50 rounded-b-2xl">
+          <button @click="closeCardDetail" class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition">取消</button>
+          <button @click="saveCard" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">儲存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 欄位選單 -->
+    <div 
+      v-if="showColumnMenu && selectedColumn" 
+      class="fixed bg-white rounded-lg shadow-xl border z-50 py-2 w-48"
+      :style="{ top: columnMenuPosition.y + 'px', left: columnMenuPosition.x + 'px' }"
+    >
+      <button @click="startEditColumn" class="w-full px-4 py-2 text-left hover:bg-gray-100">編輯欄位</button>
+      <button @click="confirmArchiveColumn" class="w-full px-4 py-2 text-left hover:bg-gray-100 text-red-500">刪除欄位</button>
+    </div>
+    
+    <!-- 欄位選單背景 -->
+    <div v-if="showColumnMenu" class="fixed inset-0 z-40" @click="showColumnMenu = false"></div>
+
+    <!-- 編輯欄位彈窗 -->
+    <div v-if="showEditColumnModal && editingColumn" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50" @click.self="showEditColumnModal = false">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">編輯欄位</h2>
+        <input 
+          v-model="editingColumn.name" 
+          type="text" 
+          placeholder="欄位名稱" 
+          class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none mb-4"
+        >
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">欄位顏色</label>
+          <div class="flex gap-2">
+            <button 
+              v-for="color in columnColors" 
+              :key="color"
+              @click="editingColumn.color = color"
+              class="w-8 h-8 rounded-full transition ring-offset-2"
+              :class="{ 'ring-2 ring-gray-400': editingColumn.color === color }"
+              :style="{ background: color }"
+            ></button>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button @click="showEditColumnModal = false" class="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition">取消</button>
+          <button @click="saveColumn" class="flex-1 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition">儲存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 確認刪除欄位彈窗 -->
+    <div v-if="showArchiveConfirm && archivingColumn" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50" @click.self="showArchiveConfirm = false">
+      <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-2">確認刪除</h2>
+        <p class="text-gray-600 mb-4">確定要刪除「{{ archivingColumn.name }}」欄位嗎？欄位內的所有卡片也會被刪除。</p>
+        <div class="flex gap-2">
+          <button @click="showArchiveConfirm = false" class="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition">取消</button>
+          <button @click="archiveColumn" class="flex-1 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition">刪除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div 
+      v-if="toast.show" 
+      class="fixed bottom-4 right-4 px-6 py-3 rounded-xl shadow-lg z-50 transition-all"
+      :class="{
+        'bg-green-500 text-white': toast.type === 'success',
+        'bg-red-500 text-white': toast.type === 'error',
+        'bg-blue-500 text-white': toast.type === 'info'
+      }"
+    >
+      {{ toast.message }}
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
+
+    // Firebase 設定
+    const firebaseConfig = {
+      apiKey: "AIzaSyD-j2mxePfU6qj4qMXR_-u-VXuzpv-zEkg",
+      authDomain: "team-kanban-f58ae.firebaseapp.com",
+      projectId: "team-kanban-f58ae",
+      storageBucket: "team-kanban-f58ae.firebasestorage.app",
+      messagingSenderId: "15717920457",
+      appId: "1:15717920457:web:42b4491eea9486f9e42718"
+    };
+
+    // 初始化 Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    createApp({
+      setup() {
+        // ===== 基本狀態 =====
+        const loading = ref(true);
+        const error = ref('');
+        const token = ref('');
+        const role = ref('member');
+        const nickname = ref('');
+        const nicknameInput = ref('');
+
+        // ===== 資料狀態 =====
+        const boards = ref([]);
+        const currentBoardId = ref('');
+        const columns = ref([]);
+        const cards = ref([]);
+        const cardComments = ref([]);
+
+        // ===== UI 狀態 =====
+        const currentView = ref('board');
+        const showNewBoardModal = ref(false);
+        const showNewColumnModal = ref(false);
+        const showNewCardModal = ref(false);
+        const showCardDetail = ref(false);
+        const showColumnMenu = ref(false);
+        const showEditColumnModal = ref(false);
+        const showArchiveConfirm = ref(false);
+
+        // ===== 編輯狀態 =====
+        const editingCard = ref(null);
+        const editingColumn = ref(null);
+        const selectedColumn = ref(null);
+        const archivingColumn = ref(null);
+        const selectedColumnForNewCard = ref(null);
+
+        // ===== 輸入狀態 =====
+        const newBoardName = ref('');
+        const newColumnName = ref('');
+        const newColumnColor = ref('#3b82f6');
+        const newCardTitle = ref('');
+        const newComment = ref('');
+
+        // ===== 拖拉狀態 =====
+        const draggingCard = ref(null);
+        const draggingColumn = ref(null);
+        const dragOverColumn = ref(null);
+
+        // ===== 日曆狀態 =====
+        const calendarDate = ref(new Date());
+
+        // ===== 甘特圖狀態 =====
+        const ganttFilter = ref({ assignee: '' });
+
+        // ===== Toast =====
+        const toast = ref({ show: false, message: '', type: 'info' });
+        const columnMenuPosition = ref({ x: 0, y: 0 });
+
+        // ===== 常數 =====
+        const columnColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6b7280'];
+        const labelNames = {
+          red: '緊急',
+          orange: '重要', 
+          yellow: '待確認',
+          green: '進行中',
+          blue: '資訊',
+          purple: '想法'
+        };
+
+        // ===== Firestore 即時監聽 =====
+        let unsubscribeBoards = null;
+        let unsubscribeColumns = null;
+        let unsubscribeCards = null;
+
+        // ===== 計算屬性 =====
+        const sortedColumns = computed(() => {
+          return [...columns.value].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+        });
+
+        const calendarTitle = computed(() => {
+          const year = calendarDate.value.getFullYear();
+          const month = calendarDate.value.getMonth() + 1;
+          return `${year} 年 ${month} 月`;
+        });
+
+        const calendarDays = computed(() => {
+          const year = calendarDate.value.getFullYear();
+          const month = calendarDate.value.getMonth();
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          const startDate = new Date(firstDay);
+          startDate.setDate(startDate.getDate() - startDate.getDay());
+          
+          const days = [];
+          const today = new Date().toISOString().split('T')[0];
+          
+          for (let i = 0; i < 42; i++) {
+            const date = new Date(startDate);
+            date.setDate(date.getDate() + i);
+            const dateStr = date.toISOString().split('T')[0];
+            days.push({
+              date: dateStr,
+              dayNum: date.getDate(),
+              isCurrentMonth: date.getMonth() === month,
+              isToday: dateStr === today
+            });
+          }
+          return days;
+        });
+
+        const ganttDates = computed(() => {
+          const dates = [];
+          const start = new Date();
+          start.setDate(start.getDate() - 7);
+          for (let i = 0; i < 30; i++) {
+            const d = new Date(start);
+            d.setDate(d.getDate() + i);
+            dates.push(d.toISOString().split('T')[0]);
+          }
+          return dates;
+        });
+
+        const allAssignees = computed(() => {
+          const assignees = new Set();
+          cards.value.forEach(c => {
+            if (c.assignee) assignees.add(c.assignee);
+          });
+          return Array.from(assignees);
+        });
+
+        const filteredGanttCards = computed(() => {
+          return cards.value.filter(c => {
+            if (!c.startDate && !c.dueDate) return false;
+            if (ganttFilter.value.assignee && c.assignee !== ganttFilter.value.assignee) return false;
+            return true;
+          });
+        });
+
+        // ===== 工具函式 =====
+        const showToast = (message, type = 'info') => {
+          toast.value = { show: true, message, type };
+          setTimeout(() => { toast.value.show = false; }, 3000);
+        };
+
+        const generateId = () => {
+          return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        };
+
+        const formatDate = (dateStr) => {
+          if (!dateStr) return '';
+          const date = new Date(dateStr);
+          return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        const formatDateTime = (timestamp) => {
+          if (!timestamp) return '';
+          const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+          return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+        };
+
+        const formatGanttDate = (dateStr) => {
+          const date = new Date(dateStr);
+          return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        const isToday = (dateStr) => {
+          return dateStr === new Date().toISOString().split('T')[0];
+        };
+
+        const getDueDateClass = (dueDate) => {
+          if (!dueDate) return '';
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const due = new Date(dueDate);
+          const diff = (due - today) / (1000 * 60 * 60 * 24);
+          if (diff < 0) return 'text-red-500 font-medium';
+          if (diff <= 2) return 'text-orange-500 font-medium';
+          return 'text-gray-500';
+        };
+
+        const getLabelName = (key) => labelNames[key] || key;
+
+        const getColumnColor = (columnId) => {
+          const col = columns.value.find(c => c.id === columnId);
+          return col?.color || '#94a3b8';
+        };
+
+        const getCardsInColumn = (columnId) => {
+          return cards.value
+            .filter(c => c.columnId === columnId)
+            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+        };
+
+        const getCardsOnDate = (dateStr) => {
+          return cards.value.filter(c => c.dueDate === dateStr);
+        };
+
+        const getChecklistProgress = (checklist) => {
+          if (!checklist || !checklist.length) return 0;
+          const done = checklist.filter(i => i.done).length;
+          return Math.round((done / checklist.length) * 100);
+        };
+
+        const getChecklistCompleted = (checklist) => {
+          if (!checklist) return 0;
+          return checklist.filter(i => i.done).length;
+        };
+
+        const getGanttBarStyle = (card) => {
+          const startIdx = ganttDates.value.indexOf(card.startDate);
+          const endIdx = ganttDates.value.indexOf(card.dueDate);
+          if (startIdx === -1 || endIdx === -1) return { display: 'none' };
+          
+          const left = startIdx * 40;
+          const width = (endIdx - startIdx + 1) * 40 - 4;
+          const color = getColumnColor(card.columnId);
+          
+          return {
+            left: left + 'px',
+            width: Math.max(width, 40) + 'px',
+            background: color
+          };
+        };
+
+        // ===== 初始化 =====
+        const initialize = async () => {
+          // 從 URL 取得 token
+          const urlParams = new URLSearchParams(window.location.search);
+          token.value = urlParams.get('token') || '';
+
+          if (!token.value) {
+            error.value = '請使用有效的連結進入系統';
+            loading.value = false;
+            return;
+          }
+
+          // 從 localStorage 讀取暱稱
+          const savedNickname = localStorage.getItem('kanban_nickname');
+          if (savedNickname) {
+            nickname.value = savedNickname;
+          }
+
+          // 驗證 token 並取得角色
+          try {
+            const configDoc = await db.collection('config').doc('tokens').get();
+            
+            if (!configDoc.exists) {
+              // 第一次使用，建立初始設定
+              const adminToken = generateId();
+              const memberToken = generateId();
+              
+              await db.collection('config').doc('tokens').set({
+                adminToken: adminToken,
+                memberToken: memberToken,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+              });
+
+              console.log('=== 系統初始化完成 ===');
+              console.log('Admin Token:', adminToken);
+              console.log('Member Token:', memberToken);
+              console.log('Admin 連結:', window.location.origin + window.location.pathname + '?token=' + adminToken);
+              console.log('Member 連結:', window.location.origin + window.location.pathname + '?token=' + memberToken);
+              
+              error.value = '系統已初始化，請查看瀏覽器 Console (F12) 取得連結';
+              loading.value = false;
+              return;
+            }
+
+            const config = configDoc.data();
+            
+            if (token.value === config.adminToken) {
+              role.value = 'admin';
+            } else if (token.value === config.memberToken) {
+              role.value = 'member';
+            } else {
+              error.value = '無效的連結，請確認連結是否正確';
+              loading.value = false;
+              return;
+            }
+
+            // 開始監聽資料
+            startListening();
+            
+          } catch (err) {
+            console.error('初始化錯誤:', err);
+            error.value = '系統錯誤，請稍後再試';
+          }
+          
+          loading.value = false;
+        };
+
+        // ===== 即時監聽 =====
+        const startListening = () => {
+          // 監聽看板
+          unsubscribeBoards = db.collection('boards')
+            .orderBy('createdAt', 'asc')
+            .onSnapshot(snapshot => {
+              boards.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+              
+              // 如果沒有選擇看板，選第一個
+              if (!currentBoardId.value && boards.value.length > 0) {
+                currentBoardId.value = boards.value[0].id;
+              }
+            });
+        };
+
+        const startBoardListening = (boardId) => {
+          // 取消之前的監聽
+          if (unsubscribeColumns) unsubscribeColumns();
+          if (unsubscribeCards) unsubscribeCards();
+
+          // 監聽欄位
+          unsubscribeColumns = db.collection('columns')
+            .where('boardId', '==', boardId)
+            .onSnapshot(snapshot => {
+              columns.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+            });
+
+          // 監聽卡片
+          unsubscribeCards = db.collection('cards')
+            .where('boardId', '==', boardId)
+            .onSnapshot(snapshot => {
+              cards.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+            });
+        };
+
+        // 監聽 currentBoardId 變化
+        watch(currentBoardId, (newId) => {
+          if (newId) {
+            startBoardListening(newId);
+          }
+        });
+
+        // ===== 暱稱 =====
+        const setNickname = () => {
+          if (nicknameInput.value.trim()) {
+            nickname.value = nicknameInput.value.trim();
+            localStorage.setItem('kanban_nickname', nickname.value);
+          }
+        };
+
+        // ===== 看板操作 =====
+        const onBoardChange = () => {
+          // 切換看板時清空資料
+          columns.value = [];
+          cards.value = [];
+        };
+
+        const createBoard = async () => {
+          if (!newBoardName.value.trim()) return;
+          
+          try {
+            const docRef = await db.collection('boards').add({
+              name: newBoardName.value.trim(),
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdBy: nickname.value
+            });
+            
+            currentBoardId.value = docRef.id;
+            newBoardName.value = '';
+            showNewBoardModal.value = false;
+            showToast('看板已建立', 'success');
+          } catch (err) {
+            console.error('建立看板錯誤:', err);
+            showToast('建立失敗', 'error');
+          }
+        };
+
+        // ===== 欄位操作 =====
+        const createColumn = async () => {
+          if (!newColumnName.value.trim() || !currentBoardId.value) return;
+          
+          try {
+            const maxOrder = columns.value.reduce((max, c) => Math.max(max, c.orderIndex || 0), 0);
+            
+            await db.collection('columns').add({
+              boardId: currentBoardId.value,
+              name: newColumnName.value.trim(),
+              color: newColumnColor.value,
+              orderIndex: maxOrder + 1,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            newColumnName.value = '';
+            newColumnColor.value = '#3b82f6';
+            showNewColumnModal.value = false;
+            showToast('欄位已建立', 'success');
+          } catch (err) {
+            console.error('建立欄位錯誤:', err);
+            showToast('建立失敗', 'error');
+          }
+        };
+
+        const openColumnMenu = (column, event) => {
+          selectedColumn.value = column;
+          columnMenuPosition.value = { x: event.clientX, y: event.clientY };
+          showColumnMenu.value = true;
+        };
+
+        const startEditColumn = () => {
+          editingColumn.value = { ...selectedColumn.value };
+          showColumnMenu.value = false;
+          showEditColumnModal.value = true;
+        };
+
+        const saveColumn = async () => {
+          if (!editingColumn.value) return;
+          
+          try {
+            await db.collection('columns').doc(editingColumn.value.id).update({
+              name: editingColumn.value.name,
+              color: editingColumn.value.color,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            showEditColumnModal.value = false;
+            showToast('欄位已更新', 'success');
+          } catch (err) {
+            console.error('更新欄位錯誤:', err);
+            showToast('更新失敗', 'error');
+          }
+        };
+
+        const confirmArchiveColumn = () => {
+          archivingColumn.value = selectedColumn.value;
+          showColumnMenu.value = false;
+          showArchiveConfirm.value = true;
+        };
+
+        const archiveColumn = async () => {
+          if (!archivingColumn.value) return;
+          
+          try {
+            // 刪除欄位內的所有卡片
+            const cardsInColumn = cards.value.filter(c => c.columnId === archivingColumn.value.id);
+            const batch = db.batch();
+            
+            cardsInColumn.forEach(card => {
+              batch.delete(db.collection('cards').doc(card.id));
+            });
+            
+            batch.delete(db.collection('columns').doc(archivingColumn.value.id));
+            
+            await batch.commit();
+            
+            showArchiveConfirm.value = false;
+            archivingColumn.value = null;
+            showToast('欄位已刪除', 'success');
+          } catch (err) {
+            console.error('刪除欄位錯誤:', err);
+            showToast('刪除失敗', 'error');
+          }
+        };
+
+        // ===== 卡片操作 =====
+        const openNewCardModal = (column) => {
+          selectedColumnForNewCard.value = column;
+          newCardTitle.value = '';
+          showNewCardModal.value = true;
+        };
+
+        const createCard = async () => {
+          if (!newCardTitle.value.trim() || !selectedColumnForNewCard.value) return;
+          
+          try {
+            const cardsInColumn = getCardsInColumn(selectedColumnForNewCard.value.id);
+            const maxOrder = cardsInColumn.reduce((max, c) => Math.max(max, c.orderIndex || 0), 0);
+            
+            await db.collection('cards').add({
+              boardId: currentBoardId.value,
+              columnId: selectedColumnForNewCard.value.id,
+              title: newCardTitle.value.trim(),
+              description: '',
+              assignee: '',
+              startDate: '',
+              dueDate: '',
+              labels: [],
+              checklist: [],
+              orderIndex: maxOrder + 1,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdBy: nickname.value
+            });
+            
+            newCardTitle.value = '';
+            showNewCardModal.value = false;
+            showToast('卡片已建立', 'success');
+          } catch (err) {
+            console.error('建立卡片錯誤:', err);
+            showToast('建立失敗', 'error');
+          }
+        };
+
+        const openCardDetail = async (card) => {
+          editingCard.value = { 
+            ...card,
+            labels: card.labels || [],
+            checklist: card.checklist || []
+          };
+          showCardDetail.value = true;
+          
+          // 載入留言
+          try {
+            const snapshot = await db.collection('comments')
+              .where('cardId', '==', card.id)
+              .orderBy('createdAt', 'desc')
+              .get();
+            
+            cardComments.value = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+          } catch (err) {
+            console.error('載入留言錯誤:', err);
+            cardComments.value = [];
+          }
+        };
+
+        const closeCardDetail = () => {
+          showCardDetail.value = false;
+          editingCard.value = null;
+          cardComments.value = [];
+          newComment.value = '';
+        };
+
+        const saveCard = async () => {
+          if (!editingCard.value) return;
+          
+          try {
+            const { id, ...data } = editingCard.value;
+            await db.collection('cards').doc(id).update({
+              ...data,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              updatedBy: nickname.value
+            });
+            
+            closeCardDetail();
+            showToast('卡片已儲存', 'success');
+          } catch (err) {
+            console.error('儲存卡片錯誤:', err);
+            showToast('儲存失敗', 'error');
+          }
+        };
+
+        const deleteCard = async () => {
+          if (!editingCard.value) return;
+          
+          if (!confirm('確定要刪除這張卡片嗎？')) return;
+          
+          try {
+            await db.collection('cards').doc(editingCard.value.id).delete();
+            closeCardDetail();
+            showToast('卡片已刪除', 'success');
+          } catch (err) {
+            console.error('刪除卡片錯誤:', err);
+            showToast('刪除失敗', 'error');
+          }
+        };
+
+        const toggleLabel = (label) => {
+          if (!editingCard.value.labels) {
+            editingCard.value.labels = [];
+          }
+          const idx = editingCard.value.labels.indexOf(label);
+          if (idx === -1) {
+            editingCard.value.labels.push(label);
+          } else {
+            editingCard.value.labels.splice(idx, 1);
+          }
+        };
+
+        const addChecklistItem = () => {
+          if (!editingCard.value.checklist) {
+            editingCard.value.checklist = [];
+          }
+          editingCard.value.checklist.push({ text: '', done: false });
+        };
+
+        const removeChecklistItem = (index) => {
+          editingCard.value.checklist.splice(index, 1);
+        };
+
+        const addComment = async () => {
+          if (!newComment.value.trim() || !editingCard.value) return;
+          
+          try {
+            await db.collection('comments').add({
+              cardId: editingCard.value.id,
+              author: nickname.value,
+              content: newComment.value.trim(),
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // 重新載入留言
+            const snapshot = await db.collection('comments')
+              .where('cardId', '==', editingCard.value.id)
+              .orderBy('createdAt', 'desc')
+              .get();
+            
+            cardComments.value = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            
+            newComment.value = '';
+            showToast('留言已送出', 'success');
+          } catch (err) {
+            console.error('送出留言錯誤:', err);
+            showToast('送出失敗', 'error');
+          }
+        };
+
+        // ===== 拖拉操作 =====
+        const onCardDragStart = (event, card) => {
+          draggingCard.value = card;
+          event.dataTransfer.effectAllowed = 'move';
+        };
+
+        const onCardDragEnd = () => {
+          draggingCard.value = null;
+        };
+
+        const onCardDragOver = (event, column) => {
+          if (draggingCard.value) {
+            dragOverColumn.value = column.id;
+          }
+        };
+
+        const onCardDrop = async (event, column) => {
+          dragOverColumn.value = null;
+          
+          if (!draggingCard.value) return;
+          if (draggingCard.value.columnId === column.id) return;
+          
+          try {
+            const cardsInColumn = getCardsInColumn(column.id);
+            const maxOrder = cardsInColumn.reduce((max, c) => Math.max(max, c.orderIndex || 0), 0);
+            
+            await db.collection('cards').doc(draggingCard.value.id).update({
+              columnId: column.id,
+              orderIndex: maxOrder + 1,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              updatedBy: nickname.value
+            });
+            
+            showToast('卡片已移動', 'success');
+          } catch (err) {
+            console.error('移動卡片錯誤:', err);
+            showToast('移動失敗', 'error');
+          }
+          
+          draggingCard.value = null;
+        };
+
+        const onColumnDragStart = (event, column) => {
+          if (role.value !== 'admin') return;
+          draggingColumn.value = column;
+          event.dataTransfer.effectAllowed = 'move';
+        };
+
+        const onColumnDragEnd = () => {
+          draggingColumn.value = null;
+          dragOverColumn.value = null;
+        };
+
+        const onColumnDragOver = (event, column) => {
+          if (draggingColumn.value && draggingColumn.value.id !== column.id) {
+            dragOverColumn.value = column.id;
+          }
+        };
+
+        const onColumnDrop = async (event, targetColumn) => {
+          if (!draggingColumn.value || draggingColumn.value.id === targetColumn.id) {
+            dragOverColumn.value = null;
+            return;
+          }
+          
+          try {
+            const sorted = sortedColumns.value;
+            const fromIdx = sorted.findIndex(c => c.id === draggingColumn.value.id);
+            const toIdx = sorted.findIndex(c => c.id === targetColumn.id);
+            
+            // 重新計算順序
+            const batch = db.batch();
+            const reordered = [...sorted];
+            const [moved] = reordered.splice(fromIdx, 1);
+            reordered.splice(toIdx, 0, moved);
+            
+            reordered.forEach((col, idx) => {
+              batch.update(db.collection('columns').doc(col.id), { orderIndex: idx });
+            });
+            
+            await batch.commit();
+            showToast('欄位順序已更新', 'success');
+          } catch (err) {
+            console.error('更新順序錯誤:', err);
+            showToast('更新失敗', 'error');
+          }
+          
+          draggingColumn.value = null;
+          dragOverColumn.value = null;
+        };
+
+        // ===== 日曆操作 =====
+        const prevMonth = () => {
+          const d = new Date(calendarDate.value);
+          d.setMonth(d.getMonth() - 1);
+          calendarDate.value = d;
+        };
+
+        const nextMonth = () => {
+          const d = new Date(calendarDate.value);
+          d.setMonth(d.getMonth() + 1);
+          calendarDate.value = d;
+        };
+
+        const onCalendarDrop = async (event, dateStr) => {
+          if (!draggingCard.value) return;
+          
+          try {
+            await db.collection('cards').doc(draggingCard.value.id).update({
+              dueDate: dateStr,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              updatedBy: nickname.value
+            });
+            
+            showToast('截止日期已更新', 'success');
+          } catch (err) {
+            console.error('更新日期錯誤:', err);
+            showToast('更新失敗', 'error');
+          }
+          
+          draggingCard.value = null;
+        };
+
+        // ===== 生命週期 =====
+        onMounted(() => {
+          initialize();
+        });
+
+        onUnmounted(() => {
+          if (unsubscribeBoards) unsubscribeBoards();
+          if (unsubscribeColumns) unsubscribeColumns();
+          if (unsubscribeCards) unsubscribeCards();
+        });
+
+        // ===== 返回 =====
+        return {
+          // 狀態
+          loading,
+          error,
+          token,
+          role,
+          nickname,
+          nicknameInput,
+          boards,
+          currentBoardId,
+          columns,
+          cards,
+          cardComments,
+          currentView,
+          showNewBoardModal,
+          showNewColumnModal,
+          showNewCardModal,
+          showCardDetail,
+          showColumnMenu,
+          showEditColumnModal,
+          showArchiveConfirm,
+          editingCard,
+          editingColumn,
+          selectedColumn,
+          archivingColumn,
+          newBoardName,
+          newColumnName,
+          newColumnColor,
+          newCardTitle,
+          newComment,
+          draggingCard,
+          draggingColumn,
+          dragOverColumn,
+          calendarDate,
+          ganttFilter,
+          toast,
+          columnMenuPosition,
+          columnColors,
+          labelNames,
+          
+          // 計算屬性
+          sortedColumns,
+          calendarTitle,
+          calendarDays,
+          ganttDates,
+          allAssignees,
+          filteredGanttCards,
+          
+          // 方法
+          setNickname,
+          onBoardChange,
+          createBoard,
+          createColumn,
+          openColumnMenu,
+          startEditColumn,
+          saveColumn,
+          confirmArchiveColumn,
+          archiveColumn,
+          openNewCardModal,
+          createCard,
+          openCardDetail,
+          closeCardDetail,
+          saveCard,
+          deleteCard,
+          toggleLabel,
+          addChecklistItem,
+          removeChecklistItem,
+          addComment,
+          onCardDragStart,
+          onCardDragEnd,
+          onCardDragOver,
+          onCardDrop,
+          onColumnDragStart,
+          onColumnDragEnd,
+          onColumnDragOver,
+          onColumnDrop,
+          prevMonth,
+          nextMonth,
+          onCalendarDrop,
+          
+          // 工具函式
+          formatDate,
+          formatDateTime,
+          formatGanttDate,
+          isToday,
+          getDueDateClass,
+          getLabelName,
+          getColumnColor,
+          getCardsInColumn,
+          getCardsOnDate,
+          getChecklistProgress,
+          getChecklistCompleted,
+          getGanttBarStyle
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
