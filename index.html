@@ -146,26 +146,34 @@
           <h1 class="text-xl font-bold text-gray-800">📋 團隊看板</h1>
           
           <!-- 看板選擇 -->
-          <select 
-            v-model="currentBoardId" 
-            @change="onBoardChange"
-            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-          >
-            <option value="">選擇看板</option>
-            <option v-for="board in boards" :key="board.id" :value="board.id">
-              {{ board.name }}
-            </option>
-          </select>
-          
-          <!-- 新增看板按鈕 -->
-          <button 
-            v-if="role === 'admin'"
-            @click="showNewBoardModal = true"
-            class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-1"
-          >
-            <span>+</span> 新增看板
-          </button>
-        </div>
+<select 
+  v-model="currentBoardId" 
+  @change="onBoardChange"
+  class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+>
+  <option value="">選擇看板</option>
+  <option v-for="board in boards" :key="board.id" :value="board.id">
+    {{ board.name }}
+  </option>
+</select>
+
+<!-- 新增看板按鈕 -->
+<button 
+  v-if="role === 'admin'"
+  @click="showNewBoardModal = true"
+  class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-1"
+>
+  <span>+</span> 新增看板
+</button>
+
+<!-- 刪除看板按鈕 -->
+<button 
+  v-if="role === 'admin' && currentBoardId"
+  @click="deleteBoard"
+  class="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1"
+>
+  刪除看板
+</button>
         
         <div class="flex items-center gap-4">
           <!-- 即時同步指示器 -->
@@ -1163,6 +1171,48 @@
           }
         };
 
+        const deleteBoard = async () => {
+  if (!currentBoardId.value) return;
+  
+  const board = boards.value.find(b => b.id === currentBoardId.value);
+  if (!board) return;
+  
+  if (!confirm(`確定要刪除看板「${board.name}」嗎？\n\n看板內的所有欄位和卡片都會被刪除！`)) {
+    return;
+  }
+  
+  try {
+    const batch = db.batch();
+    
+    // 刪除看板內的所有卡片
+    const cardsSnapshot = await db.collection('cards').where('boardId', '==', currentBoardId.value).get();
+    cardsSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    // 刪除看板內的所有欄位
+    const columnsSnapshot = await db.collection('columns').where('boardId', '==', currentBoardId.value).get();
+    columnsSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    // 刪除看板
+    batch.delete(db.collection('boards').doc(currentBoardId.value));
+    
+    await batch.commit();
+    
+    currentBoardId.value = '';
+    columns.value = [];
+    cards.value = [];
+    
+    showToast('看板已刪除', 'success');
+  } catch (err) {
+    console.error('刪除看板錯誤:', err);
+    showToast('刪除失敗', 'error');
+  }
+};
+
+        
         // ===== 欄位操作 =====
         const createColumn = async () => {
           if (!newColumnName.value.trim() || !currentBoardId.value) return;
@@ -1593,6 +1643,7 @@
           setNickname,
           onBoardChange,
           createBoard,
+          deleteBoard,
           createColumn,
           openColumnMenu,
           startEditColumn,
