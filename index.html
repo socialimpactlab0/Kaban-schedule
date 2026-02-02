@@ -633,7 +633,57 @@
                   <span class="text-xs text-gray-400 ml-2">支援 PDF、Word、Excel 等</span>
                 </div>
               </div>
+
+                <!-- 圖片附件 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">📷 圖片</h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <div v-for="(img, index) in editingCard.images" :key="'img-'+index" class="relative group file-preview">
+                    <img :src="img.url" class="w-full h-32 object-cover rounded-lg border">
+                    <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition rounded-lg flex items-center justify-center">
+                      <button 
+                        @click="removeFile('images', index)" 
+                        class="bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-2">
+                  <label class="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <input type="file" accept="image/*" @change="uploadFile($event, 'images')" class="hidden" :disabled="uploading">
+                    <span v-if="!uploading">+ 上傳圖片</span>
+                    <span v-else>上傳中 {{ uploadProgress }}%</span>
+                  </label>
+                </div>
+                <div v-if="uploading" class="mt-2 bg-gray-200 rounded-full h-2">
+                  <div class="upload-progress bg-blue-500 h-2 rounded-full" :style="{ width: uploadProgress + '%' }"></div>
+                </div>
+              </div>
               
+              <!-- 檔案附件 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">📎 檔案</h3>
+                <div class="space-y-2">
+                  <div v-for="(file, index) in editingCard.files" :key="'file-'+index" class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg file-preview">
+                    <span class="text-2xl">{{ getFileIcon(file.name) }}</span>
+                    <div class="flex-1 min-w-0">
+                      <a :href="file.url" target="_blank" class="text-blue-500 hover:underline truncate block">{{ file.name }}</a>
+                      <span class="text-xs text-gray-400">{{ formatFileSize(file.size) }}</span>
+                    </div>
+                    <button @click="removeFile('files', index)" class="text-red-500 hover:text-red-600 p-1">✕</button>
+                  </div>
+                </div>
+                <div class="mt-2">
+                  <label class="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <input type="file" @change="uploadFile($event, 'files')" class="hidden" :disabled="uploading">
+                    <span v-if="!uploading">+ 上傳檔案</span>
+                    <span v-else>上傳中 {{ uploadProgress }}%</span>
+                  </label>
+                  <span class="text-xs text-gray-400 ml-2">PDF、Word、Excel 等</span>
+                </div>
+              </div>
               <!-- 檢查清單 -->
               <div>
                 <h3 class="font-medium text-gray-700 mb-2">檢查清單</h3>
