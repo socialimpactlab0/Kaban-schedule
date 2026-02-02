@@ -11,6 +11,7 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
   
   <style>
     * { font-family: 'Noto Sans TC', sans-serif; }
@@ -93,6 +94,19 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+    
+    /* 檔案預覽 */
+    .file-preview {
+      transition: all 0.2s;
+    }
+    .file-preview:hover {
+      transform: scale(1.02);
+    }
+    
+    /* 上傳進度條 */
+    .upload-progress {
+      transition: width 0.3s ease;
+    }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -146,34 +160,35 @@
           <h1 class="text-xl font-bold text-gray-800">📋 團隊看板</h1>
           
           <!-- 看板選擇 -->
-<select 
-  v-model="currentBoardId" 
-  @change="onBoardChange"
-  class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
->
-  <option value="">選擇看板</option>
-  <option v-for="board in boards" :key="board.id" :value="board.id">
-    {{ board.name }}
-  </option>
-</select>
-
-<!-- 新增看板按鈕 -->
-<button 
-  v-if="role === 'admin'"
-  @click="showNewBoardModal = true"
-  class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-1"
->
-  <span>+</span> 新增看板
-</button>
-
-<!-- 刪除看板按鈕 -->
-<button 
-  v-if="role === 'admin' && currentBoardId"
-  @click="deleteBoard"
-  class="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1"
->
-  刪除看板
-</button>
+          <select 
+            v-model="currentBoardId" 
+            @change="onBoardChange"
+            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+          >
+            <option value="">選擇看板</option>
+            <option v-for="board in boards" :key="board.id" :value="board.id">
+              {{ board.name }}
+            </option>
+          </select>
+          
+          <!-- 新增看板按鈕 -->
+          <button 
+            v-if="role === 'admin'"
+            @click="showNewBoardModal = true"
+            class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-1"
+          >
+            <span>+</span> 新增看板
+          </button>
+          
+          <!-- 刪除看板按鈕 -->
+          <button 
+            v-if="role === 'admin' && currentBoardId"
+            @click="deleteBoard"
+            class="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1"
+          >
+            刪除看板
+          </button>
+        </div>
         
         <div class="flex items-center gap-4">
           <!-- 即時同步指示器 -->
@@ -229,10 +244,10 @@
             
             <!-- 欄位 -->
             <div 
-               v-for="column in sortedColumns" 
-               :key="column.id"
-               class="flex-shrink-0 w-80 bg-gray-100 rounded-xl flex flex-col max-h-full"
-              >
+              v-for="column in sortedColumns" 
+              :key="column.id"
+              class="flex-shrink-0 w-80 bg-gray-100 rounded-xl flex flex-col max-h-full"
+            >
               <!-- 欄位標題 -->
               <div class="column-color-bar" :style="{ background: column.color || '#94a3b8' }"></div>
               <div class="p-3 flex items-center justify-between">
@@ -281,6 +296,12 @@
                   
                   <!-- 標題 -->
                   <h4 class="font-medium text-gray-800 mb-2">{{ card.title }}</h4>
+                  
+                  <!-- 附件圖示 -->
+                  <div v-if="(card.files && card.files.length) || (card.images && card.images.length)" class="flex items-center gap-2 mb-2 text-gray-500 text-sm">
+                    <span v-if="card.images && card.images.length">🖼️ {{ card.images.length }}</span>
+                    <span v-if="card.files && card.files.length">📎 {{ card.files.length }}</span>
+                  </div>
                   
                   <!-- 底部資訊 -->
                   <div class="flex items-center justify-between text-sm text-gray-500">
@@ -561,6 +582,58 @@
                 ></textarea>
               </div>
               
+              <!-- 圖片附件 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">📷 圖片</h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <div v-for="(img, index) in editingCard.images" :key="'img-'+index" class="relative group file-preview">
+                    <img :src="img.url" class="w-full h-32 object-cover rounded-lg border">
+                    <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition rounded-lg flex items-center justify-center">
+                      <button 
+                        @click="removeFile('images', index)" 
+                        class="bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-2">
+                  <label class="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <input type="file" accept="image/*" @change="uploadFile($event, 'images')" class="hidden" :disabled="uploading">
+                    <span v-if="!uploading">+ 上傳圖片</span>
+                    <span v-else>上傳中 {{ uploadProgress }}%</span>
+                  </label>
+                </div>
+                <!-- 上傳進度條 -->
+                <div v-if="uploading" class="mt-2 bg-gray-200 rounded-full h-2">
+                  <div class="upload-progress bg-blue-500 h-2 rounded-full" :style="{ width: uploadProgress + '%' }"></div>
+                </div>
+              </div>
+              
+              <!-- 檔案附件 -->
+              <div>
+                <h3 class="font-medium text-gray-700 mb-2">📎 檔案</h3>
+                <div class="space-y-2">
+                  <div v-for="(file, index) in editingCard.files" :key="'file-'+index" class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg file-preview">
+                    <span class="text-2xl">{{ getFileIcon(file.name) }}</span>
+                    <div class="flex-1 min-w-0">
+                      <a :href="file.url" target="_blank" class="text-blue-500 hover:underline truncate block">{{ file.name }}</a>
+                      <span class="text-xs text-gray-400">{{ formatFileSize(file.size) }}</span>
+                    </div>
+                    <button @click="removeFile('files', index)" class="text-red-500 hover:text-red-600 p-1">✕</button>
+                  </div>
+                </div>
+                <div class="mt-2">
+                  <label class="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <input type="file" @change="uploadFile($event, 'files')" class="hidden" :disabled="uploading">
+                    <span v-if="!uploading">+ 上傳檔案</span>
+                    <span v-else>上傳中 {{ uploadProgress }}%</span>
+                  </label>
+                  <span class="text-xs text-gray-400 ml-2">支援 PDF、Word、Excel 等</span>
+                </div>
+              </div>
+              
               <!-- 檢查清單 -->
               <div>
                 <h3 class="font-medium text-gray-700 mb-2">檢查清單</h3>
@@ -795,6 +868,7 @@
     // 初始化 Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    const storage = firebase.storage();
 
     createApp({
       setup() {
@@ -837,9 +911,12 @@
         const newCardTitle = ref('');
         const newComment = ref('');
 
+        // ===== 上傳狀態 =====
+        const uploading = ref(false);
+        const uploadProgress = ref(0);
+
         // ===== 拖拉狀態 =====
         const draggingCard = ref(null);
-        const draggingColumn = ref(null);
         const dragOverColumn = ref(null);
 
         // ===== 日曆狀態 =====
@@ -957,6 +1034,28 @@
         const formatGanttDate = (dateStr) => {
           const date = new Date(dateStr);
           return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        const formatFileSize = (bytes) => {
+          if (!bytes) return '';
+          if (bytes < 1024) return bytes + ' B';
+          if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+          return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        };
+
+        const getFileIcon = (filename) => {
+          const ext = filename.split('.').pop().toLowerCase();
+          const icons = {
+            pdf: '📕',
+            doc: '📘', docx: '📘',
+            xls: '📗', xlsx: '📗',
+            ppt: '📙', pptx: '📙',
+            txt: '📄',
+            zip: '📦', rar: '📦',
+            mp3: '🎵', wav: '🎵',
+            mp4: '🎬', mov: '🎬', avi: '🎬'
+          };
+          return icons[ext] || '📄';
         };
 
         const isToday = (dateStr) => {
@@ -1172,47 +1271,46 @@
         };
 
         const deleteBoard = async () => {
-  if (!currentBoardId.value) return;
-  
-  const board = boards.value.find(b => b.id === currentBoardId.value);
-  if (!board) return;
-  
-  if (!confirm(`確定要刪除看板「${board.name}」嗎？\n\n看板內的所有欄位和卡片都會被刪除！`)) {
-    return;
-  }
-  
-  try {
-    const batch = db.batch();
-    
-    // 刪除看板內的所有卡片
-    const cardsSnapshot = await db.collection('cards').where('boardId', '==', currentBoardId.value).get();
-    cardsSnapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    // 刪除看板內的所有欄位
-    const columnsSnapshot = await db.collection('columns').where('boardId', '==', currentBoardId.value).get();
-    columnsSnapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    // 刪除看板
-    batch.delete(db.collection('boards').doc(currentBoardId.value));
-    
-    await batch.commit();
-    
-    currentBoardId.value = '';
-    columns.value = [];
-    cards.value = [];
-    
-    showToast('看板已刪除', 'success');
-  } catch (err) {
-    console.error('刪除看板錯誤:', err);
-    showToast('刪除失敗', 'error');
-  }
-};
+          if (!currentBoardId.value) return;
+          
+          const board = boards.value.find(b => b.id === currentBoardId.value);
+          if (!board) return;
+          
+          if (!confirm(`確定要刪除看板「${board.name}」嗎？\n\n看板內的所有欄位和卡片都會被刪除！`)) {
+            return;
+          }
+          
+          try {
+            const batch = db.batch();
+            
+            // 刪除看板內的所有卡片
+            const cardsSnapshot = await db.collection('cards').where('boardId', '==', currentBoardId.value).get();
+            cardsSnapshot.docs.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+            
+            // 刪除看板內的所有欄位
+            const columnsSnapshot = await db.collection('columns').where('boardId', '==', currentBoardId.value).get();
+            columnsSnapshot.docs.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+            
+            // 刪除看板
+            batch.delete(db.collection('boards').doc(currentBoardId.value));
+            
+            await batch.commit();
+            
+            currentBoardId.value = '';
+            columns.value = [];
+            cards.value = [];
+            
+            showToast('看板已刪除', 'success');
+          } catch (err) {
+            console.error('刪除看板錯誤:', err);
+            showToast('刪除失敗', 'error');
+          }
+        };
 
-        
         // ===== 欄位操作 =====
         const createColumn = async () => {
           if (!newColumnName.value.trim() || !currentBoardId.value) return;
@@ -1323,6 +1421,8 @@
               dueDate: '',
               labels: [],
               checklist: [],
+              images: [],
+              files: [],
               orderIndex: maxOrder + 1,
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
               createdBy: nickname.value
@@ -1341,7 +1441,9 @@
           editingCard.value = { 
             ...card,
             labels: card.labels || [],
-            checklist: card.checklist || []
+            checklist: card.checklist || [],
+            images: card.images || [],
+            files: card.files || []
           };
           showCardDetail.value = true;
           
@@ -1394,6 +1496,35 @@
           if (!confirm('確定要刪除這張卡片嗎？')) return;
           
           try {
+            // 刪除卡片相關的檔案
+            const card = editingCard.value;
+            
+            // 刪除圖片
+            if (card.images && card.images.length) {
+              for (const img of card.images) {
+                if (img.path) {
+                  try {
+                    await storage.ref(img.path).delete();
+                  } catch (e) {
+                    console.log('刪除圖片失敗:', e);
+                  }
+                }
+              }
+            }
+            
+            // 刪除檔案
+            if (card.files && card.files.length) {
+              for (const file of card.files) {
+                if (file.path) {
+                  try {
+                    await storage.ref(file.path).delete();
+                  } catch (e) {
+                    console.log('刪除檔案失敗:', e);
+                  }
+                }
+              }
+            }
+            
             await db.collection('cards').doc(editingCard.value.id).delete();
             closeCardDetail();
             showToast('卡片已刪除', 'success');
@@ -1456,6 +1587,97 @@
           }
         };
 
+        // ===== 檔案上傳 =====
+        const uploadFile = async (event, type) => {
+          const file = event.target.files[0];
+          if (!file) return;
+          
+          // 檢查檔案大小（最大 20MB）
+          if (file.size > 20 * 1024 * 1024) {
+            showToast('檔案太大，請選擇 20MB 以下的檔案', 'error');
+            event.target.value = '';
+            return;
+          }
+          
+          uploading.value = true;
+          uploadProgress.value = 0;
+          
+          try {
+            // 產生唯一檔名
+            const timestamp = Date.now();
+            const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const path = `cards/${editingCard.value.id}/${timestamp}_${safeName}`;
+            
+            const uploadTask = storage.ref(path).put(file);
+            
+            // 監聽上傳進度
+            uploadTask.on('state_changed', 
+              (snapshot) => {
+                uploadProgress.value = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+              },
+              (error) => {
+                console.error('上傳錯誤:', error);
+                showToast('上傳失敗', 'error');
+                uploading.value = false;
+              },
+              async () => {
+                // 上傳完成，取得下載網址
+                const url = await uploadTask.snapshot.ref.getDownloadURL();
+                
+                const fileInfo = {
+                  name: file.name,
+                  url: url,
+                  path: path,
+                  size: file.size,
+                  type: file.type,
+                  uploadedAt: new Date().toISOString(),
+                  uploadedBy: nickname.value
+                };
+                
+                if (type === 'images') {
+                  if (!editingCard.value.images) {
+                    editingCard.value.images = [];
+                  }
+                  editingCard.value.images.push(fileInfo);
+                } else {
+                  if (!editingCard.value.files) {
+                    editingCard.value.files = [];
+                  }
+                  editingCard.value.files.push(fileInfo);
+                }
+                
+                showToast('上傳成功', 'success');
+                uploading.value = false;
+                uploadProgress.value = 0;
+              }
+            );
+          } catch (err) {
+            console.error('上傳錯誤:', err);
+            showToast('上傳失敗', 'error');
+            uploading.value = false;
+          }
+          
+          event.target.value = '';
+        };
+
+        const removeFile = async (type, index) => {
+          const fileList = type === 'images' ? editingCard.value.images : editingCard.value.files;
+          const file = fileList[index];
+          
+          // 從 Storage 刪除檔案
+          if (file.path) {
+            try {
+              await storage.ref(file.path).delete();
+            } catch (e) {
+              console.log('刪除檔案失敗:', e);
+            }
+          }
+          
+          // 從陣列中移除
+          fileList.splice(index, 1);
+          showToast('已移除', 'success');
+        };
+
         // ===== 拖拉操作 =====
         const onCardDragStart = (event, card) => {
           draggingCard.value = card;
@@ -1464,6 +1686,7 @@
 
         const onCardDragEnd = () => {
           draggingCard.value = null;
+          dragOverColumn.value = null;
         };
 
         const onCardDragOver = (event, column) => {
@@ -1496,55 +1719,6 @@
           }
           
           draggingCard.value = null;
-        };
-
-        const onColumnDragStart = (event, column) => {
-          if (role.value !== 'admin') return;
-          draggingColumn.value = column;
-          event.dataTransfer.effectAllowed = 'move';
-        };
-
-        const onColumnDragEnd = () => {
-          draggingColumn.value = null;
-          dragOverColumn.value = null;
-        };
-
-        const onColumnDragOver = (event, column) => {
-          if (draggingColumn.value && draggingColumn.value.id !== column.id) {
-            dragOverColumn.value = column.id;
-          }
-        };
-
-        const onColumnDrop = async (event, targetColumn) => {
-          if (!draggingColumn.value || draggingColumn.value.id === targetColumn.id) {
-            dragOverColumn.value = null;
-            return;
-          }
-          
-          try {
-            const sorted = sortedColumns.value;
-            const fromIdx = sorted.findIndex(c => c.id === draggingColumn.value.id);
-            const toIdx = sorted.findIndex(c => c.id === targetColumn.id);
-            
-            // 重新計算順序
-            const batch = db.batch();
-            const reordered = [...sorted];
-            const [moved] = reordered.splice(fromIdx, 1);
-            reordered.splice(toIdx, 0, moved);
-            
-            reordered.forEach((col, idx) => {
-              batch.update(db.collection('columns').doc(col.id), { orderIndex: idx });
-            });
-            
-            await batch.commit();
-            showToast('欄位順序已更新', 'success');
-          } catch (err) {
-            console.error('更新順序錯誤:', err);
-            showToast('更新失敗', 'error');
-          }
-          
-          draggingColumn.value = null;
-          dragOverColumn.value = null;
         };
 
         // ===== 日曆操作 =====
@@ -1621,8 +1795,9 @@
           newColumnColor,
           newCardTitle,
           newComment,
+          uploading,
+          uploadProgress,
           draggingCard,
-          draggingColumn,
           dragOverColumn,
           calendarDate,
           ganttFilter,
@@ -1660,14 +1835,12 @@
           addChecklistItem,
           removeChecklistItem,
           addComment,
+          uploadFile,
+          removeFile,
           onCardDragStart,
           onCardDragEnd,
           onCardDragOver,
           onCardDrop,
-          onColumnDragStart,
-          onColumnDragEnd,
-          onColumnDragOver,
-          onColumnDrop,
           prevMonth,
           nextMonth,
           onCalendarDrop,
@@ -1676,6 +1849,8 @@
           formatDate,
           formatDateTime,
           formatGanttDate,
+          formatFileSize,
+          getFileIcon,
           isToday,
           getDueDateClass,
           getLabelName,
@@ -1691,3 +1866,4 @@
   </script>
 </body>
 </html>
+
