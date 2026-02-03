@@ -10,6 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <style>
     * { font-family: 'Noto Sans TC', sans-serif; }
     .drag-over { background-color: #e0e7ff !important; border: 2px dashed #6366f1 !important; }
@@ -36,33 +37,60 @@
       <div class="bg-white p-8 rounded-xl shadow-lg text-center max-w-md">
         <div class="text-red-500 text-5xl mb-4">⚠️</div>
         <h2 class="text-xl font-bold text-gray-800 mb-2">無法載入</h2>
-        <p class="text-gray-600">{{ error }}</p>
+        <p class="text-gray-600 mb-4">{{ error }}</p>
+        <button 
+          v-if="showRetryLogin"
+          @click="signInWithGoogle"
+          class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"
+        >
+          重新登入
+        </button>
       </div>
     </div>
 
-    <!-- 輸入暱稱 -->
-    <div v-else-if="!nickname" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
-      <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6 text-center">👋 歡迎使用團隊看板</h1>
-        <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-2">請輸入你的暱稱</label>
-          <input 
-            v-model="inputNickname" 
-            @keyup.enter="setNickname"
-            type="text" 
-            placeholder="例如：小明"
-            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-          >
-        </div>
+    <!-- Google 登入畫面 -->
+    <div v-else-if="!currentUser" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
+      <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4 text-center">
+        <div class="text-6xl mb-4">📋</div>
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">團隊看板系統</h1>
+        <p class="text-gray-500 mb-6">請使用 Google 帳號登入</p>
+        
         <button 
-          @click="setNickname"
-          :disabled="!inputNickname.trim()"
-          class="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          @click="signInWithGoogle"
+          class="w-full py-3 px-4 bg-white border-2 border-gray-300 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center space-x-3"
         >
-          進入看板
+          <svg class="w-6 h-6" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          <span class="text-gray-700">使用 Google 帳號登入</span>
         </button>
-        <p class="mt-4 text-center text-sm text-gray-500">
-          身份：<span class="font-medium" :class="role === 'admin' ? 'text-indigo-600' : 'text-green-600'">{{ role === 'admin' ? '管理員' : '成員' }}</span>
+        
+        <p class="mt-6 text-sm text-gray-400">
+          首次登入需要管理員授權
+        </p>
+      </div>
+    </div>
+
+    <!-- 未授權畫面 -->
+    <div v-else-if="!isAuthorized" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
+      <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4 text-center">
+        <div class="text-6xl mb-4">🔒</div>
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">尚未授權</h1>
+        <p class="text-gray-500 mb-2">您的帳號尚未被授權使用此系統</p>
+        <p class="text-gray-400 text-sm mb-6">{{ currentUser.email }}</p>
+        
+        <button 
+          @click="signOut"
+          class="w-full py-2 px-4 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+        >
+          使用其他帳號登入
+        </button>
+        
+        <p class="mt-6 text-sm text-gray-400">
+          請聯絡管理員將您的 Email 加入授權名單
         </p>
       </div>
     </div>
@@ -87,7 +115,6 @@
                 </option>
               </select>
               
-              <!-- 新增看板按鈕 -->
               <button 
                 v-if="role === 'admin'"
                 @click="showNewBoardModal = true"
@@ -96,39 +123,40 @@
                 + 新增看板
               </button>
               
-              <!-- 刪除看板按鈕 -->
               <button 
                 v-if="role === 'admin' && currentBoardId"
                 @click="deleteBoard"
                 class="px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                title="刪除此看板"
               >
                 🗑️ 刪除看板
               </button>
               
-              <!-- 匯出備份按鈕 -->
               <button 
                 @click="exportBackup"
                 class="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-                title="匯出所有資料備份"
               >
                 📥 匯出備份
               </button>
               
-              <!-- 匯入備份按鈕 -->
               <button 
                 v-if="role === 'admin'"
                 @click="openImportModal"
                 class="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-                title="從備份檔案匯入資料"
               >
                 📂 匯入備份
+              </button>
+              
+              <button 
+                v-if="role === 'admin'"
+                @click="showUserManagement = true"
+                class="px-3 py-1.5 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+              >
+                👥 使用者管理
               </button>
             </div>
           </div>
           
           <div class="flex items-center space-x-4">
-            <!-- 視圖切換 -->
             <div class="flex bg-gray-100 rounded-lg p-1">
               <button 
                 @click="currentView = 'board'"
@@ -153,12 +181,18 @@
               </button>
             </div>
             
-            <!-- 使用者資訊 -->
             <div class="flex items-center space-x-2 text-sm">
-              <span class="text-gray-600">👤 {{ nickname }}</span>
+              <img :src="currentUser.photoURL" class="w-8 h-8 rounded-full" v-if="currentUser.photoURL">
+              <span class="text-gray-600">{{ currentUser.displayName || currentUser.email }}</span>
               <span class="px-2 py-0.5 rounded-full text-xs" :class="role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'">
                 {{ role === 'admin' ? '管理員' : '成員' }}
               </span>
+              <button 
+                @click="signOut"
+                class="px-2 py-1 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+              >
+                登出
+              </button>
             </div>
           </div>
         </div>
@@ -169,7 +203,6 @@
         <!-- 看板視圖 -->
         <div v-if="currentView === 'board'" class="h-full p-4 overflow-x-auto">
           <div class="flex space-x-4 h-full">
-            <!-- 欄位（不可拖拉） -->
             <div 
               v-for="column in sortedColumns" 
               :key="column.id"
@@ -177,7 +210,6 @@
               @dragover.prevent="onCardDragOver($event, column)"
               @drop="onCardDrop($event, column)"
             >
-              <!-- 欄位標題 -->
               <div class="p-3 font-medium flex items-center justify-between" :style="{ borderTop: '3px solid ' + (column.color || '#6366f1') }">
                 <div class="flex items-center">
                   <span>{{ column.name }}</span>
@@ -189,7 +221,6 @@
                   <button 
                     @click="openNewCardModal(column)"
                     class="p-1 hover:bg-gray-200 rounded transition-colors"
-                    title="新增卡片"
                   >
                     ➕
                   </button>
@@ -197,14 +228,12 @@
                     v-if="role === 'admin'"
                     @click="openColumnMenu(column)"
                     class="p-1 hover:bg-gray-200 rounded transition-colors"
-                    title="欄位設定"
                   >
                     ⚙️
                   </button>
                 </div>
               </div>
               
-              <!-- 卡片列表 -->
               <div class="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
                 <div
                   v-for="card in cards.filter(c => c.columnId === column.id).sort((a, b) => a.orderIndex - b.orderIndex)"
@@ -216,7 +245,6 @@
                   class="bg-white p-3 rounded-lg shadow-sm hover:shadow-md cursor-pointer transition-shadow border border-gray-200"
                   :class="{ 'card-dragging': draggingCard?.id === card.id }"
                 >
-                  <!-- 標籤 -->
                   <div v-if="card.labels && card.labels.length > 0" class="flex flex-wrap gap-1 mb-2">
                     <span 
                       v-for="label in card.labels" 
@@ -234,32 +262,24 @@
                     </span>
                   </div>
                   
-                  <!-- 標題 -->
                   <h4 class="font-medium text-gray-800 line-clamp-2">{{ card.title }}</h4>
-                  
-                  <!-- 描述預覽 -->
                   <p v-if="card.description" class="text-sm text-gray-500 mt-1 line-clamp-2">{{ card.description }}</p>
                   
-                  <!-- 卡片底部資訊 -->
                   <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
                     <div class="flex items-center space-x-2">
-                      <!-- 到期日 -->
                       <span v-if="card.dueDate" :class="getDueDateClass(card.dueDate)">
                         📅 {{ formatDate(card.dueDate) }}
                       </span>
-                      <!-- 檢查清單進度 -->
                       <span v-if="card.checklist && card.checklist.length > 0">
                         ✅ {{ card.checklist.filter(i => i.done).length }}/{{ card.checklist.length }}
                       </span>
                     </div>
-                    <!-- 指派人 -->
                     <span v-if="card.assignee" class="text-gray-500">
                       👤 {{ card.assignee }}
                     </span>
                   </div>
                 </div>
                 
-                <!-- 空欄位提示 -->
                 <div 
                   v-if="cards.filter(c => c.columnId === column.id).length === 0"
                   class="text-center text-gray-400 text-sm py-8"
@@ -269,7 +289,6 @@
               </div>
             </div>
             
-            <!-- 新增欄位按鈕 -->
             <div v-if="role === 'admin'" class="flex-shrink-0 w-80">
               <button 
                 @click="showNewColumnModal = true"
@@ -284,35 +303,29 @@
         <!-- 日曆視圖 -->
         <div v-if="currentView === 'calendar'" class="h-full p-4 overflow-auto">
           <div class="bg-white rounded-xl shadow-sm p-4">
-        <!-- 顯示範圍切換 -->
-    <div class="flex items-center justify-end mb-4">
-      <label class="flex items-center cursor-pointer">
-        <input 
-          type="checkbox" 
-          v-model="showAllBoards"
-          class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
-        >
-        <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
-      </label>
-    </div>
+            <div class="flex items-center justify-end mb-4">
+              <label class="flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  v-model="showAllBoards"
+                  class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
+                >
+                <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
+              </label>
+            </div>
             
-            
-            
-            <!-- 日曆導航 -->
             <div class="flex items-center justify-between mb-4">
               <button @click="prevMonth" class="px-3 py-1 hover:bg-gray-100 rounded-lg">◀</button>
               <h3 class="text-lg font-medium">{{ calendarTitle }}</h3>
               <button @click="nextMonth" class="px-3 py-1 hover:bg-gray-100 rounded-lg">▶</button>
             </div>
             
-            <!-- 星期標題 -->
             <div class="grid grid-cols-7 gap-1 mb-2">
               <div v-for="day in ['日', '一', '二', '三', '四', '五', '六']" :key="day" class="text-center text-sm font-medium text-gray-500 py-2">
                 {{ day }}
               </div>
             </div>
             
-            <!-- 日期格子 -->
             <div class="grid grid-cols-7 gap-1">
               <div 
                 v-for="day in calendarDays" 
@@ -345,28 +358,25 @@
           <div class="bg-white rounded-xl shadow-sm p-4">
             <h3 class="text-lg font-medium mb-4">📊 甘特圖</h3>
             
-             <!-- 篩選 -->
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center space-x-4">
-        <select v-model="ganttFilterAssignee" class="px-3 py-1.5 border rounded-lg text-sm">
-          <option value="">所有成員</option>
-          <option v-for="assignee in allAssignees" :key="assignee" :value="assignee">{{ assignee }}</option>
-        </select>
-      </div>
-      <label class="flex items-center cursor-pointer">
-        <input 
-          type="checkbox" 
-          v-model="showAllBoards"
-          class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
-        >
-        <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
-      </label>
-    </div>
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center space-x-4">
+                <select v-model="ganttFilterAssignee" class="px-3 py-1.5 border rounded-lg text-sm">
+                  <option value="">所有成員</option>
+                  <option v-for="assignee in allAssignees" :key="assignee" :value="assignee">{{ assignee }}</option>
+                </select>
+              </div>
+              <label class="flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  v-model="showAllBoards"
+                  class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
+                >
+                <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
+              </label>
+            </div>
             
-            <!-- 甘特圖表格 -->
             <div class="overflow-x-auto">
               <div class="min-w-max">
-                <!-- 日期標題 -->
                 <div class="flex border-b">
                   <div class="w-48 flex-shrink-0 p-2 font-medium text-sm text-gray-600">任務</div>
                   <div class="flex">
@@ -381,7 +391,6 @@
                   </div>
                 </div>
                 
-                <!-- 任務列 -->
                 <div 
                   v-for="card in filteredGanttCards" 
                   :key="card.id"
@@ -397,7 +406,6 @@
                       class="w-8 h-8 border-l"
                       :class="{ 'bg-blue-50': isToday(date) }"
                     ></div>
-                    <!-- 甘特條 -->
                     <div 
                       v-if="card.startDate && card.dueDate"
                       class="absolute h-6 top-1 bg-indigo-400 rounded"
@@ -579,8 +587,100 @@
           </div>
         </div>
         <div class="p-4 border-t bg-gray-50 flex justify-end space-x-2">
-          <button @click="closeImportModal" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">取消</button>
-          <button v-if="importPreview" @click="executeImport" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">確認匯入</button>
+          <button @click="closeImportModal" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">取消</button>
+          <button v-if="importPreview" @click="executeImport" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">確認匯入</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 使用者管理彈窗 -->
+    <div v-if="showUserManagement" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
+          <h3 class="text-lg font-bold text-gray-800">👥 使用者管理</h3>
+          <button @click="showUserManagement = false" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        </div>
+        
+        <div class="p-4 flex-1 overflow-y-auto">
+          <div class="mb-6 p-4 bg-blue-50 rounded-lg">
+            <h4 class="font-medium text-gray-700 mb-3">新增授權使用者</h4>
+            <div class="flex space-x-2">
+              <input 
+                v-model="newUserEmail"
+                type="email"
+                placeholder="輸入 Email（例如：user@gmail.com）"
+                class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                @keyup.enter="addUser"
+              >
+              <select v-model="newUserRole" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <option value="member">成員</option>
+                <option value="admin">管理員</option>
+              </select>
+              <button 
+                @click="addUser"
+                class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 text-sm"
+              >
+                新增
+              </button>
+            </div>
+            <p class="mt-2 text-xs text-gray-500">
+              💡 新增後，該使用者用 Google 登入即可進入系統
+            </p>
+          </div>
+          
+          <div>
+            <h4 class="font-medium text-gray-700 mb-3">已授權使用者（{{ authorizedUsers.length }} 人）</h4>
+            <div class="space-y-2">
+              <div 
+                v-for="user in authorizedUsers" 
+                :key="user.id"
+                class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              >
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-medium">
+                    {{ user.email.charAt(0).toUpperCase() }}
+                  </div>
+                  <div>
+                    <div class="font-medium text-gray-800">{{ user.email }}</div>
+                    <div class="text-xs text-gray-500">
+                      {{ user.lastLogin ? '上次登入：' + formatDateTime(user.lastLogin) : '尚未登入' }}
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <select 
+                    :value="user.role"
+                    @change="updateUserRole(user, $event.target.value)"
+                    class="px-2 py-1 border border-gray-300 rounded text-sm"
+                    :disabled="user.email === currentUser.email"
+                  >
+                    <option value="member">成員</option>
+                    <option value="admin">管理員</option>
+                  </select>
+                  <button 
+                    v-if="user.email !== currentUser.email"
+                    @click="removeUser(user)"
+                    class="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              
+              <div v-if="authorizedUsers.length === 0" class="text-center text-gray-500 py-8">
+                尚無授權使用者
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="p-4 border-t bg-gray-50">
+          <button 
+            @click="showUserManagement = false"
+            class="w-full py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+          >
+            關閉
+          </button>
         </div>
       </div>
     </div>
@@ -602,7 +702,6 @@
     <!-- 卡片詳情彈窗 -->
     <div v-if="showCardDetail" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        <!-- 標題列 -->
         <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
           <input 
             v-model="editingCard.title"
@@ -613,12 +712,9 @@
           <button @click="closeCardDetail" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
         </div>
         
-        <!-- 內容區 -->
         <div class="flex-1 overflow-y-auto">
           <div class="flex flex-col md:flex-row">
-            <!-- 左側：主要內容 -->
             <div class="flex-1 p-4 space-y-4">
-              <!-- 描述 -->
               <div>
                 <h4 class="font-medium text-gray-700 mb-2">📝 描述</h4>
                 <textarea 
@@ -629,7 +725,6 @@
                 ></textarea>
               </div>
               
-              <!-- 圖片區塊 -->
               <div class="mb-6">
                 <h4 class="font-medium text-gray-700 mb-2 flex items-center">
                   <span class="mr-2">📷</span>圖片
@@ -653,7 +748,6 @@
                 <p class="text-xs text-gray-400 mt-1">⚠️ 需要 Firebase Storage（目前 Spark 方案不支援）</p>
               </div>
               
-              <!-- 檔案區塊 -->
               <div class="mb-6">
                 <h4 class="font-medium text-gray-700 mb-2 flex items-center">
                   <span class="mr-2">📎</span>檔案
@@ -675,7 +769,6 @@
                 <p class="text-xs text-gray-400 mt-1">⚠️ 需要 Firebase Storage（目前 Spark 方案不支援）</p>
               </div>
               
-              <!-- 外部連結區塊（Google Drive 等） -->
               <div class="mb-6">
                 <h4 class="font-medium text-gray-700 mb-2 flex items-center">
                   <span class="mr-2">🔗</span>外部連結（Google Drive 等）
@@ -696,7 +789,6 @@
                     <button 
                       @click="removeExternalLink(index)"
                       class="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="移除連結"
                     >✕</button>
                   </div>
                 </div>
@@ -734,7 +826,6 @@
                 </div>
               </div>
               
-              <!-- 檢查清單 -->
               <div>
                 <h4 class="font-medium text-gray-700 mb-2">✅ 檢查清單</h4>
                 <div class="space-y-2">
@@ -765,7 +856,6 @@
                 </button>
               </div>
               
-              <!-- 留言 -->
               <div>
                 <h4 class="font-medium text-gray-700 mb-2">💬 留言</h4>
                 <div class="flex space-x-2 mb-4">
@@ -799,9 +889,7 @@
               </div>
             </div>
             
-            <!-- 右側：屬性 -->
             <div class="w-full md:w-64 p-4 bg-gray-50 border-t md:border-t-0 md:border-l space-y-4">
-              <!-- 狀態（所在欄位） -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">狀態</label>
                 <select 
@@ -814,7 +902,6 @@
                 </select>
               </div>
               
-              <!-- 指派人 -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">指派人</label>
                 <input 
@@ -825,7 +912,6 @@
                 >
               </div>
               
-              <!-- 開始日期 -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">開始日期</label>
                 <input 
@@ -835,7 +921,6 @@
                 >
               </div>
               
-              <!-- 到期日 -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">到期日</label>
                 <input 
@@ -845,7 +930,6 @@
                 >
               </div>
               
-              <!-- 標籤 -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">標籤</label>
                 <div class="flex flex-wrap gap-2">
@@ -863,7 +947,6 @@
                 </div>
               </div>
               
-              <!-- 操作按鈕 -->
               <div class="pt-4 border-t space-y-2">
                 <button 
                   @click="saveCard"
@@ -902,16 +985,25 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const storage = firebase.storage();
+    const auth = firebase.auth();
 
     createApp({
       setup() {
         // === 狀態變數 ===
         const loading = ref(true);
         const error = ref('');
-        const token = ref('');
+        const showRetryLogin = ref(false);
+        
+        // Google 登入相關
+        const currentUser = ref(null);
+        const isAuthorized = ref(false);
         const role = ref('');
-        const nickname = ref('');
-        const inputNickname = ref('');
+        const authorizedUsers = ref([]);
+        
+        // 使用者管理
+        const showUserManagement = ref(false);
+        const newUserEmail = ref('');
+        const newUserRole = ref('member');
         
         // 看板資料
         const boards = ref([]);
@@ -965,9 +1057,12 @@
         
         // 甘特圖狀態
         const ganttFilterAssignee = ref('');
-
-        // 顯示全部看板的開關
+        
+        // 顯示全部看板開關
         const showAllBoards = ref(false);
+        
+        // 全部看板的卡片
+        const allBoardsCards = ref([]);
         
         // Toast
         const toast = ref({ show: false, message: '', type: 'info' });
@@ -986,10 +1081,19 @@
         let unsubscribeBoards = null;
         let unsubscribeColumns = null;
         let unsubscribeCards = null;
+        let unsubscribeAllCards = null;
+        let unsubscribeUsers = null;
 
         // === 計算屬性 ===
         const sortedColumns = computed(() => {
           return [...columns.value].sort((a, b) => a.orderIndex - b.orderIndex);
+        });
+        
+        const displayCards = computed(() => {
+          if (showAllBoards.value) {
+            return allBoardsCards.value;
+          }
+          return cards.value;
         });
         
         const calendarTitle = computed(() => {
@@ -1005,7 +1109,6 @@
           const lastDay = new Date(year, month + 1, 0);
           const days = [];
           
-          // 前面補空白
           for (let i = 0; i < firstDay.getDay(); i++) {
             const d = new Date(year, month, -firstDay.getDay() + i + 1);
             days.push({
@@ -1017,7 +1120,6 @@
             });
           }
           
-          // 當月日期
           const today = new Date().toISOString().slice(0, 10);
           for (let i = 1; i <= lastDay.getDate(); i++) {
             const d = new Date(year, month, i);
@@ -1031,7 +1133,6 @@
             });
           }
           
-          // 後面補空白
           const remaining = 42 - days.length;
           for (let i = 1; i <= remaining; i++) {
             const d = new Date(year, month + 1, i);
@@ -1066,21 +1167,9 @@
           });
           return Array.from(assignees);
         });
-
-         // 新增：根據開關決定要顯示的卡片
-         const displayCards = computed(() => {
-         if (showAllBoards.value) {
-        // 顯示全部看板的卡片（需要額外查詢）
-         return allBoardsCards.value;
-       }
-         return cards.value;
-       });
-
-      // 新增：儲存全部看板的卡片
-         const allBoardsCards = ref([]);
-      
+        
         const filteredGanttCards = computed(() => {
-         let filtered = displayCards.value.filter(c => c.dueDate || c.startDate);
+          let filtered = displayCards.value.filter(c => c.dueDate || c.startDate);
           if (ganttFilterAssignee.value) {
             filtered = filtered.filter(c => c.assignee === ganttFilterAssignee.value);
           }
@@ -1154,109 +1243,197 @@
           };
         };
 
-        // === 初始化 ===
-        const initialize = async () => {
+       // === Google 登入功能 ===
+        const signInWithGoogle = async () => {
           try {
-            // 從 URL 取得 token
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlToken = urlParams.get('token');
-            
-            if (!urlToken) {
-              error.value = '請使用有效的連結進入系統';
-              loading.value = false;
-              return;
-            }
-            
-            token.value = urlToken;
-            
-            // 從 localStorage 取得暱稱
-            const savedNickname = localStorage.getItem('kanban_nickname');
-            if (savedNickname) {
-              nickname.value = savedNickname;
-            }
-            
-            // 檢查是否為初始化模式
-            if (urlToken === 'init') {
-              // 檢查是否已有 tokens
-              const tokensDoc = await db.collection('config').doc('tokens').get();
-              
-              if (!tokensDoc.exists) {
-                // 首次初始化：建立 tokens
-                const adminToken = generateId();
-                const memberToken = generateId();
-                
-                await db.collection('config').doc('tokens').set({
-                  adminToken,
-                  memberToken,
-                  createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                const baseUrl = window.location.origin + window.location.pathname;
-                console.log('=== 系統初始化完成 ===');
-                console.log('Admin Token:', adminToken);
-                console.log('Member Token:', memberToken);
-                console.log('Admin 連結:', baseUrl + '?token=' + adminToken);
-                console.log('Member 連結:', baseUrl + '?token=' + memberToken);
-                console.log('請複製上方連結使用');
-                
-                error.value = '系統初始化完成！請開啟瀏覽器的開發者工具（F12）→ Console，複製連結使用。';
-                loading.value = false;
-                return;
-              } else {
-                // 已初始化過，顯示連結
-                const data = tokensDoc.data();
-                const baseUrl = window.location.origin + window.location.pathname;
-                console.log('=== 系統已初始化 ===');
-                console.log('Admin 連結:', baseUrl + '?token=' + data.adminToken);
-                console.log('Member 連結:', baseUrl + '?token=' + data.memberToken);
-                
-                error.value = '系統已初始化！請開啟瀏覽器的開發者工具（F12）→ Console，複製連結使用。';
-                loading.value = false;
-                return;
-              }
-            }
-            
-            // 驗證 token
-            const tokensDoc = await db.collection('config').doc('tokens').get();
-            
-            if (!tokensDoc.exists) {
-              error.value = '系統尚未初始化，請先使用 ?token=init 進行初始化';
-              loading.value = false;
-              return;
-            }
-            
-            const tokens = tokensDoc.data();
-            
-            if (urlToken === tokens.adminToken) {
-              role.value = 'admin';
-            } else if (urlToken === tokens.memberToken) {
-              role.value = 'member';
-            } else {
-              error.value = '無效的連結，請確認連結是否正確';
-              loading.value = false;
-              return;
-            }
-            
-            // 開始監聽資料
-            startListening();
-            loading.value = false;
-            
+            loading.value = true;
+            error.value = '';
+            const provider = new firebase.auth.GoogleAuthProvider();
+            await auth.signInWithPopup(provider);
           } catch (err) {
-            console.error('初始化失敗:', err);
-            error.value = '系統初始化失敗：' + err.message;
+            console.error('Google 登入失敗:', err);
+            if (err.code === 'auth/popup-closed-by-user') {
+              error.value = '登入視窗已關閉，請重試';
+            } else if (err.code === 'auth/unauthorized-domain') {
+              error.value = '此網域未授權，請聯絡管理員';
+            } else {
+              error.value = '登入失敗：' + err.message;
+            }
+            showRetryLogin.value = true;
             loading.value = false;
           }
+        };
+        
+        const signOut = async () => {
+          try {
+            await auth.signOut();
+            currentUser.value = null;
+            isAuthorized.value = false;
+            role.value = '';
+            boards.value = [];
+            columns.value = [];
+            cards.value = [];
+            showToast('已登出', 'info');
+          } catch (err) {
+            console.error('登出失敗:', err);
+            showToast('登出失敗', 'error');
+          }
+        };
+        
+        const checkAuthorization = async (user) => {
+          try {
+            const userDoc = await db.collection('authorized_users').doc(user.email).get();
+            
+            if (userDoc.exists) {
+              isAuthorized.value = true;
+              role.value = userDoc.data().role || 'member';
+              
+              await db.collection('authorized_users').doc(user.email).update({
+                lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+                displayName: user.displayName,
+                photoURL: user.photoURL
+              });
+              
+              return true;
+            } else {
+              const usersSnapshot = await db.collection('authorized_users').get();
+              
+              if (usersSnapshot.empty) {
+                await db.collection('authorized_users').doc(user.email).set({
+                  email: user.email,
+                  role: 'admin',
+                  displayName: user.displayName,
+                  photoURL: user.photoURL,
+                  createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                isAuthorized.value = true;
+                role.value = 'admin';
+                showToast('歡迎！您是第一位使用者，已自動設為管理員', 'success');
+                return true;
+              }
+              
+              isAuthorized.value = false;
+              return false;
+            }
+          } catch (err) {
+            console.error('檢查授權失敗:', err);
+            return false;
+          }
+        };
+        
+        // === 使用者管理功能 ===
+        const loadAuthorizedUsers = () => {
+          unsubscribeUsers = db.collection('authorized_users')
+            .orderBy('createdAt', 'asc')
+            .onSnapshot(snapshot => {
+              authorizedUsers.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+            });
+        };
+        
+        const addUser = async () => {
+          if (!newUserEmail.value.trim()) {
+            showToast('請輸入 Email', 'error');
+            return;
+          }
+          
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(newUserEmail.value.trim())) {
+            showToast('請輸入有效的 Email 格式', 'error');
+            return;
+          }
+          
+          const email = newUserEmail.value.trim().toLowerCase();
+          
+          try {
+            const existingUser = await db.collection('authorized_users').doc(email).get();
+            if (existingUser.exists) {
+              showToast('此 Email 已在授權名單中', 'error');
+              return;
+            }
+            
+            await db.collection('authorized_users').doc(email).set({
+              email: email,
+              role: newUserRole.value,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdBy: currentUser.value.email
+            });
+            
+            newUserEmail.value = '';
+            newUserRole.value = 'member';
+            showToast('使用者已新增', 'success');
+          } catch (err) {
+            console.error('新增使用者失敗:', err);
+            showToast('新增使用者失敗', 'error');
+          }
+        };
+        
+        const updateUserRole = async (user, newRole) => {
+          try {
+            await db.collection('authorized_users').doc(user.email).update({
+              role: newRole
+            });
+            showToast('角色已更新', 'success');
+          } catch (err) {
+            console.error('更新角色失敗:', err);
+            showToast('更新角色失敗', 'error');
+          }
+        };
+        
+        const removeUser = async (user) => {
+          if (!confirm(`確定要移除「${user.email}」的授權嗎？`)) return;
+          
+          try {
+            await db.collection('authorized_users').doc(user.email).delete();
+            showToast('使用者已移除', 'success');
+          } catch (err) {
+            console.error('移除使用者失敗:', err);
+            showToast('移除使用者失敗', 'error');
+          }
+        };
+
+        // === 初始化 ===
+        const initialize = async () => {
+          auth.onAuthStateChanged(async (user) => {
+            loading.value = true;
+            error.value = '';
+            showRetryLogin.value = false;
+            
+            if (user) {
+              currentUser.value = {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName,
+                photoURL: user.photoURL
+              };
+              
+              const authorized = await checkAuthorization(user);
+              
+              if (authorized) {
+                startListening();
+                loadAuthorizedUsers();
+              }
+            } else {
+              currentUser.value = null;
+              isAuthorized.value = false;
+              role.value = '';
+            }
+            
+            loading.value = false;
+          });
         };
 
         // === 資料監聽 ===
         const startListening = () => {
-          // 監聽看板
           unsubscribeBoards = db.collection('boards')
             .orderBy('createdAt', 'asc')
             .onSnapshot(snapshot => {
               boards.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
               
-              // 如果沒有選擇看板，選第一個
               if (!currentBoardId.value && boards.value.length > 0) {
                 currentBoardId.value = boards.value[0].id;
               }
@@ -1264,7 +1441,6 @@
         };
         
         const startBoardListening = (boardId) => {
-          // 取消舊的監聽
           if (unsubscribeColumns) unsubscribeColumns();
           if (unsubscribeCards) unsubscribeCards();
           
@@ -1274,14 +1450,12 @@
             return;
           }
           
-          // 監聽欄位
           unsubscribeColumns = db.collection('columns')
             .where('boardId', '==', boardId)
             .onSnapshot(snapshot => {
               columns.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             });
           
-          // 監聽卡片
           unsubscribeCards = db.collection('cards')
             .where('boardId', '==', boardId)
             .onSnapshot(snapshot => {
@@ -1289,43 +1463,32 @@
             });
         };
         
-        // 監聽看板切換
         watch(currentBoardId, (newId) => {
           startBoardListening(newId);
         });
-
-        // 新增：監聽全部看板的卡片
-           let unsubscribeAllCards = null;
-
-           const startAllCardsListening = () => {
-           if (unsubscribeAllCards) unsubscribeAllCards();
-  
-             unsubscribeAllCards = db.collection('cards')
-            .onSnapshot(snapshot => {
-            allBoardsCards.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-               });
-              };
-
-           // 監聽開關變化
-           watch(showAllBoards, (newVal) => {
-           if (newVal) {
-           startAllCardsListening();
-            } else {
-            if (unsubscribeAllCards) {
-           unsubscribeAllCards();
-           unsubscribeAllCards = null;
-             }
-            allBoardsCards.value = [];
-             }
-            });
-
         
-        // === 使用者功能 ===
-        const setNickname = () => {
-          if (!inputNickname.value.trim()) return;
-          nickname.value = inputNickname.value.trim();
-          localStorage.setItem('kanban_nickname', nickname.value);
+        let unsubscribeAllCardsListener = null;
+        
+        const startAllCardsListening = () => {
+          if (unsubscribeAllCardsListener) unsubscribeAllCardsListener();
+          
+          unsubscribeAllCardsListener = db.collection('cards')
+            .onSnapshot(snapshot => {
+              allBoardsCards.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            });
         };
+        
+        watch(showAllBoards, (newVal) => {
+          if (newVal) {
+            startAllCardsListening();
+          } else {
+            if (unsubscribeAllCardsListener) {
+              unsubscribeAllCardsListener();
+              unsubscribeAllCardsListener = null;
+            }
+            allBoardsCards.value = [];
+          }
+        });
 
         // === 看板功能 ===
         const createBoard = async () => {
@@ -1336,7 +1499,7 @@
             await db.collection('boards').doc(boardId).set({
               name: newBoardName.value.trim(),
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-              createdBy: nickname.value
+              createdBy: currentUser.value.email
             });
             
             currentBoardId.value = boardId;
@@ -1361,19 +1524,16 @@
           try {
             const batch = db.batch();
             
-            // 刪除該看板的所有卡片
             const cardsToDelete = cards.value.filter(c => c.boardId === currentBoardId.value);
             for (const card of cardsToDelete) {
               batch.delete(db.collection('cards').doc(card.id));
             }
             
-            // 刪除該看板的所有欄位
             const columnsToDelete = columns.value.filter(c => c.boardId === currentBoardId.value);
             for (const column of columnsToDelete) {
               batch.delete(db.collection('columns').doc(column.id));
             }
             
-            // 刪除看板本身
             batch.delete(db.collection('boards').doc(currentBoardId.value));
             
             await batch.commit();
@@ -1450,13 +1610,11 @@
           try {
             const batch = db.batch();
             
-            // 刪除欄位內的所有卡片
             const cardsToDelete = cards.value.filter(c => c.columnId === archivingColumn.value.id);
             for (const card of cardsToDelete) {
               batch.delete(db.collection('cards').doc(card.id));
             }
             
-            // 刪除欄位
             batch.delete(db.collection('columns').doc(archivingColumn.value.id));
             
             await batch.commit();
@@ -1495,7 +1653,7 @@
               externalLinks: [],
               orderIndex: maxOrder + 1,
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-              createdBy: nickname.value
+              createdBy: currentUser.value.email
             });
             
             newCardTitle.value = '';
@@ -1518,7 +1676,6 @@
           };
           showCardDetail.value = true;
           
-          // 載入留言
           try {
             const snapshot = await db.collection('comments')
               .where('cardId', '==', card.id)
@@ -1586,13 +1743,12 @@
             await db.collection('comments').doc(generateId()).set({
               cardId: editingCard.value.id,
               content: newComment.value.trim(),
-              author: nickname.value,
+              author: currentUser.value.displayName || currentUser.value.email,
               createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
             newComment.value = '';
             
-            // 重新載入留言
             const snapshot = await db.collection('comments')
               .where('cardId', '==', editingCard.value.id)
               .orderBy('createdAt', 'desc')
@@ -1606,7 +1762,7 @@
           }
         };
 
-        // === 上傳功能（保留，需要 Blaze 方案） ===
+        // === 上傳功能 ===
         const uploadImage = async (event) => {
           const file = event.target.files[0];
           if (!file) return;
@@ -1801,7 +1957,6 @@
             const batch = db.batch();
             const importData = importPreview.value.rawData;
             
-            // 覆蓋模式：先刪除現有資料
             if (importMode.value === 'replace') {
               for (const card of cards.value) {
                 batch.delete(db.collection('cards').doc(card.id));
@@ -1814,11 +1969,9 @@
               }
             }
             
-            // 建立 ID 對應表
             const boardIdMap = {};
             const columnIdMap = {};
             
-            // 匯入看板
             if (importData.boards) {
               for (const board of importData.boards) {
                 const newId = importMode.value === 'merge' ? generateId() : board.id;
@@ -1834,7 +1987,6 @@
               }
             }
             
-            // 匯入欄位
             if (importData.columns) {
               for (const column of importData.columns) {
                 const newId = importMode.value === 'merge' ? generateId() : column.id;
@@ -1849,7 +2001,6 @@
               }
             }
             
-            // 匯入卡片
             if (importData.cards) {
               for (const card of importData.cards) {
                 const newId = importMode.value === 'merge' ? generateId() : card.id;
@@ -1949,20 +2100,31 @@
         });
         
         onUnmounted(() => {
-  if (unsubscribeBoards) unsubscribeBoards();
-  if (unsubscribeColumns) unsubscribeColumns();
-  if (unsubscribeCards) unsubscribeCards();
-  if (unsubscribeAllCards) unsubscribeAllCards();
-});
+          if (unsubscribeBoards) unsubscribeBoards();
+          if (unsubscribeColumns) unsubscribeColumns();
+          if (unsubscribeCards) unsubscribeCards();
+          if (unsubscribeAllCards) unsubscribeAllCards();
+          if (unsubscribeAllCardsListener) unsubscribeAllCardsListener();
+          if (unsubscribeUsers) unsubscribeUsers();
+        });
 
         // === 回傳 ===
         return {
-          // 狀態
           loading,
           error,
+          showRetryLogin,
+          currentUser,
+          isAuthorized,
           role,
-          nickname,
-          inputNickname,
+          authorizedUsers,
+          showUserManagement,
+          newUserEmail,
+          newUserRole,
+          signInWithGoogle,
+          signOut,
+          addUser,
+          updateUserRole,
+          removeUser,
           boards,
           columns,
           cards,
@@ -1970,8 +2132,6 @@
           currentBoardId,
           currentView,
           toast,
-          
-          // 彈窗
           showNewBoardModal,
           showNewColumnModal,
           showNewCardModal,
@@ -1980,78 +2140,47 @@
           showEditColumnModal,
           showArchiveConfirm,
           showImportModal,
-          
-          // 編輯
           editingCard,
           editingColumn,
           selectedColumn,
           archivingColumn,
-          
-          // 輸入
           newBoardName,
           newColumnName,
           newColumnColor,
           newCardTitle,
           newComment,
-          
-          // 上傳
           uploading,
-          
-          // 外部連結
           showAddExternalLink,
           newExternalLink,
-          
-          // 匯入
           importMode,
           importFileInput,
           importPreview,
-          
-          // 拖拉
           draggingCard,
-          
-          // 日曆
           calendarDate,
-          
-          // 甘特圖
           ganttFilterAssignee,
           showAllBoards,
-          
-          // 常數
           columnColors,
           labelNames,
-          
-          // 計算屬性
           sortedColumns,
           calendarTitle,
           calendarDays,
           ganttDates,
           allAssignees,
           filteredGanttCards,
-          
-          // 工具函式
           formatDate,
           formatDateTime,
           getDueDateClass,
           getLabelBgClass,
           isToday,
           getGanttBarStyle,
-          
-          // 使用者
-          setNickname,
-          
-          // 看板
           createBoard,
           deleteBoard,
-          
-          // 欄位
           createColumn,
           openColumnMenu,
           openEditColumnModal,
           saveColumn,
           confirmArchiveColumn,
           archiveColumn,
-          
-          // 卡片
           openNewCardModal,
           createCard,
           openCardDetail,
@@ -2059,34 +2188,22 @@
           saveCard,
           deleteCard,
           toggleLabel,
-          
-          // 留言
           addComment,
-          
-          // 上傳
           uploadImage,
           removeImage,
           uploadFile,
           removeFile,
-          
-          // 外部連結
           addExternalLink,
           removeExternalLink,
-          
-          // 備份
           exportBackup,
           openImportModal,
           closeImportModal,
           handleImportFile,
           executeImport,
-          
-          // 拖拉
           onCardDragStart,
           onCardDragEnd,
           onCardDragOver,
           onCardDrop,
-          
-          // 日曆
           prevMonth,
           nextMonth,
           onCalendarDrop
@@ -2096,4 +2213,3 @@
   </script>
 </body>
 </html>
-
