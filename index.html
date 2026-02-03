@@ -964,7 +964,10 @@
         const calendarDate = ref(new Date());
         
         // 甘特圖狀態
-        const ganttFilterAssignee = ref(false);
+        const ganttFilterAssignee = ref('');
+
+        // 顯示全部看板的開關
+        const showAllBoards = ref(false);
         
         // Toast
         const toast = ref({ show: false, message: '', type: 'info' });
