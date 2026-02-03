@@ -284,6 +284,20 @@
         <!-- 日曆視圖 -->
         <div v-if="currentView === 'calendar'" class="h-full p-4 overflow-auto">
           <div class="bg-white rounded-xl shadow-sm p-4">
+        <!-- 顯示範圍切換 -->
+    <div class="flex items-center justify-end mb-4">
+      <label class="flex items-center cursor-pointer">
+        <input 
+          type="checkbox" 
+          v-model="showAllBoards"
+          class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
+        >
+        <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
+      </label>
+    </div>
+            
+            
+            
             <!-- 日曆導航 -->
             <div class="flex items-center justify-between mb-4">
               <button @click="prevMonth" class="px-3 py-1 hover:bg-gray-100 rounded-lg">◀</button>
@@ -331,13 +345,23 @@
           <div class="bg-white rounded-xl shadow-sm p-4">
             <h3 class="text-lg font-medium mb-4">📊 甘特圖</h3>
             
-            <!-- 篩選 -->
-            <div class="flex items-center space-x-4 mb-4">
-              <select v-model="ganttFilterAssignee" class="px-3 py-1.5 border rounded-lg text-sm">
-                <option value="">所有成員</option>
-                <option v-for="assignee in allAssignees" :key="assignee" :value="assignee">{{ assignee }}</option>
-              </select>
-            </div>
+             <!-- 篩選 -->
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center space-x-4">
+        <select v-model="ganttFilterAssignee" class="px-3 py-1.5 border rounded-lg text-sm">
+          <option value="">所有成員</option>
+          <option v-for="assignee in allAssignees" :key="assignee" :value="assignee">{{ assignee }}</option>
+        </select>
+      </div>
+      <label class="flex items-center cursor-pointer">
+        <input 
+          type="checkbox" 
+          v-model="showAllBoards"
+          class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 mr-2"
+        >
+        <span class="text-sm text-gray-600">顯示全部看板的卡片</span>
+      </label>
+    </div>
             
             <!-- 甘特圖表格 -->
             <div class="overflow-x-auto">
@@ -940,7 +964,7 @@
         const calendarDate = ref(new Date());
         
         // 甘特圖狀態
-        const ganttFilterAssignee = ref('');
+        const ganttFilterAssignee = ref(false);
         
         // Toast
         const toast = ref({ show: false, message: '', type: 'info' });
@@ -1000,7 +1024,7 @@
               dayNum: i,
               isCurrentMonth: true,
               isToday: dateStr === today,
-              cards: cards.value.filter(c => c.dueDate === dateStr)
+              cards: displayCards.value.filter(c => c.dueDate === dateStr)
             });
           }
           
@@ -1039,9 +1063,21 @@
           });
           return Array.from(assignees);
         });
-        
+
+         // 新增：根據開關決定要顯示的卡片
+         const displayCards = computed(() => {
+         if (showAllBoards.value) {
+        // 顯示全部看板的卡片（需要額外查詢）
+         return allBoardsCards.value;
+       }
+         return cards.value;
+       });
+
+      // 新增：儲存全部看板的卡片
+         const allBoardsCards = ref([]);
+      
         const filteredGanttCards = computed(() => {
-          let filtered = cards.value.filter(c => c.dueDate || c.startDate);
+         let filtered = displayCards.value.filter(c => c.dueDate || c.startDate);
           if (ganttFilterAssignee.value) {
             filtered = filtered.filter(c => c.assignee === ganttFilterAssignee.value);
           }
@@ -1255,6 +1291,32 @@
           startBoardListening(newId);
         });
 
+        // 新增：監聽全部看板的卡片
+           let unsubscribeAllCards = null;
+
+           const startAllCardsListening = () => {
+           if (unsubscribeAllCards) unsubscribeAllCards();
+  
+             unsubscribeAllCards = db.collection('cards')
+            .onSnapshot(snapshot => {
+            allBoardsCards.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+               });
+              };
+
+           // 監聽開關變化
+           watch(showAllBoards, (newVal) => {
+           if (newVal) {
+           startAllCardsListening();
+            } else {
+            if (unsubscribeAllCards) {
+           unsubscribeAllCards();
+           unsubscribeAllCards = null;
+             }
+            allBoardsCards.value = [];
+             }
+            });
+
+        
         // === 使用者功能 ===
         const setNickname = () => {
           if (!inputNickname.value.trim()) return;
@@ -1884,10 +1946,11 @@
         });
         
         onUnmounted(() => {
-          if (unsubscribeBoards) unsubscribeBoards();
-          if (unsubscribeColumns) unsubscribeColumns();
-          if (unsubscribeCards) unsubscribeCards();
-        });
+  if (unsubscribeBoards) unsubscribeBoards();
+  if (unsubscribeColumns) unsubscribeColumns();
+  if (unsubscribeCards) unsubscribeCards();
+  if (unsubscribeAllCards) unsubscribeAllCards();
+});
 
         // === 回傳 ===
         return {
@@ -1948,6 +2011,7 @@
           
           // 甘特圖
           ganttFilterAssignee,
+          showAllBoards,
           
           // 常數
           columnColors,
