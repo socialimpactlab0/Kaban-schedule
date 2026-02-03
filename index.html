@@ -1430,38 +1430,29 @@ const signInWithGoogle = async () => {
 
         // === 初始化 ===
      const initialize = async () => {
-  // 檢查是否已登入
   auth.onAuthStateChanged(async (user) => {
     if (user) {
-      // 已登入，顯示載入中
       loading.value = true;
       currentUser.value = user;
-      await checkAuthorization();
+      
+      const authorized = await checkAuthorization(user);
+      
+      if (authorized) {
+        startListening();
+        loadAuthorizedUsers();
+      }
+      
       loading.value = false;
     } else {
-      // 未登入，直接顯示登入畫面（不顯示載入中）
       loading.value = false;
+      currentUser.value = null;
+      isAuthorized.value = false;
+      role.value = '';
     }
   });
 };
-              
-              const authorized = await checkAuthorization(user);
-              
-              if (authorized) {
-                startListening();
-                loadAuthorizedUsers();
-              }
-            } else {
-              currentUser.value = null;
-              isAuthorized.value = false;
-              role.value = '';
-            }
-            
-            loading.value = false;
-          });
-        };
-
-        // === 資料監聽 ===
+             
+         // === 資料監聽 ===
         const startListening = () => {
           unsubscribeBoards = db.collection('boards')
             .orderBy('createdAt', 'asc')
