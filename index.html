@@ -100,14 +100,15 @@
       <!-- 頂部導航 -->
       <header class="bg-white shadow-sm border-b border-gray-200 px-4 py-3">
         <div class="flex items-center justify-between">
+          <!-- 左側：標題和看板選擇 -->
           <div class="flex items-center space-x-4">
-            <h1 class="text-xl font-bold text-gray-800">📋 團隊看板</h1>
+            <h1 class="text-xl font-bold text-gray-800 whitespace-nowrap">📋 團隊看板</h1>
             
             <!-- 看板選擇 -->
             <div class="flex items-center space-x-2">
               <select 
                 v-model="currentBoardId"
-                class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none min-w-32"
               >
                 <option value="">選擇看板</option>
                 <option v-for="board in boards" :key="board.id" :value="board.id">
@@ -118,75 +119,93 @@
               <button 
                 v-if="role === 'admin'"
                 @click="showNewBoardModal = true"
-                class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+                class="px-3 py-1.5 text-sm bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors whitespace-nowrap"
               >
-                + 新增看板
-              </button>
-              
-              <button 
-                v-if="role === 'admin' && currentBoardId"
-                @click="deleteBoard"
-                class="px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-              >
-                🗑️ 刪除看板
-              </button>
-              
-              <button 
-                @click="exportBackup"
-                class="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-              >
-                📥 匯出備份
-              </button>
-              
-              <button 
-                v-if="role === 'admin'"
-                @click="openImportModal"
-                class="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-              >
-                📂 匯入備份
-              </button>
-              
-              <button 
-                v-if="role === 'admin'"
-                @click="showUserManagement = true"
-                class="px-3 py-1.5 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
-              >
-                👥 使用者管理
+                + 新增
               </button>
             </div>
           </div>
           
-          <div class="flex items-center space-x-4">
-            <div class="flex bg-gray-100 rounded-lg p-1">
+          <!-- 中間：視圖切換 -->
+          <div class="flex bg-gray-100 rounded-lg p-1">
+            <button 
+              @click="currentView = 'board'"
+              :class="currentView === 'board' ? 'bg-white shadow-sm' : ''"
+              class="px-3 py-1 text-sm rounded-md transition-all"
+            >
+              📋 看板
+            </button>
+            <button 
+              @click="currentView = 'calendar'"
+              :class="currentView === 'calendar' ? 'bg-white shadow-sm' : ''"
+              class="px-3 py-1 text-sm rounded-md transition-all"
+            >
+              📅 日曆
+            </button>
+            <button 
+              @click="currentView = 'gantt'"
+              :class="currentView === 'gantt' ? 'bg-white shadow-sm' : ''"
+              class="px-3 py-1 text-sm rounded-md transition-all"
+            >
+              📊 甘特圖
+            </button>
+          </div>
+          
+          <!-- 右側：工具和使用者 -->
+          <div class="flex items-center space-x-3">
+            <!-- 工具下拉選單 -->
+            <div class="relative" ref="toolMenuRef">
               <button 
-                @click="currentView = 'board'"
-                :class="currentView === 'board' ? 'bg-white shadow-sm' : ''"
-                class="px-3 py-1 text-sm rounded-md transition-all"
+                @click="showToolMenu = !showToolMenu"
+                class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-1"
               >
-                📋 看板
+                <span>⚙️ 工具</span>
+                <span class="text-xs">▼</span>
               </button>
-              <button 
-                @click="currentView = 'calendar'"
-                :class="currentView === 'calendar' ? 'bg-white shadow-sm' : ''"
-                class="px-3 py-1 text-sm rounded-md transition-all"
+              
+              <!-- 下拉選單內容 -->
+              <div 
+                v-if="showToolMenu"
+                class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
               >
-                📅 日曆
-              </button>
-              <button 
-                @click="currentView = 'gantt'"
-                :class="currentView === 'gantt' ? 'bg-white shadow-sm' : ''"
-                class="px-3 py-1 text-sm rounded-md transition-all"
-              >
-                📊 甘特圖
-              </button>
+                <button 
+                  @click="exportBackup; showToolMenu = false"
+                  class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                >
+                  <span>📥</span><span>匯出備份</span>
+                </button>
+                <button 
+                  v-if="role === 'admin'"
+                  @click="openImportModal(); showToolMenu = false"
+                  class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                >
+                  <span>📂</span><span>匯入備份</span>
+                </button>
+                <div v-if="role === 'admin'" class="border-t border-gray-100 my-1"></div>
+                <button 
+                  v-if="role === 'admin'"
+                  @click="showUserManagement = true; showToolMenu = false"
+                  class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                >
+                  <span>👥</span><span>使用者管理</span>
+                </button>
+                <button 
+                  v-if="role === 'admin' && currentBoardId"
+                  @click="deleteBoard(); showToolMenu = false"
+                  class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                >
+                  <span>🗑️</span><span>刪除看板</span>
+                </button>
+              </div>
             </div>
             
-            <div class="flex items-center space-x-2 text-sm">
+            <!-- 使用者資訊 -->
+            <div class="flex items-center space-x-2 pl-3 border-l border-gray-200">
               <img :src="currentUser.photoURL" class="w-8 h-8 rounded-full" v-if="currentUser.photoURL">
-              <span class="text-gray-600">{{ currentUser.displayName || currentUser.email }}</span>
-              <span class="px-2 py-0.5 rounded-full text-xs" :class="role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'">
-                {{ role === 'admin' ? '管理員' : '成員' }}
-              </span>
+              <div class="hidden sm:block">
+                <div class="text-sm font-medium text-gray-700">{{ currentUser.displayName || currentUser.email }}</div>
+                <div class="text-xs text-gray-500">{{ role === 'admin' ? '管理員' : '成員' }}</div>
+              </div>
               <button 
                 @click="signOut"
                 class="px-2 py-1 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
@@ -1063,6 +1082,9 @@
         
         // 全部看板的卡片
         const allBoardsCards = ref([]);
+
+        // 工具選單
+        const showToolMenu = ref(false);
         
         // Toast
         const toast = ref({ show: false, message: '', type: 'info' });
@@ -2159,6 +2181,7 @@
           calendarDate,
           ganttFilterAssignee,
           showAllBoards,
+          showToolMenu,
           columnColors,
           labelNames,
           sortedColumns,
